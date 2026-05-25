@@ -473,13 +473,32 @@ export default function App() {
     onPanResponderTerminationRequest: () => true,
   })).current;
   const screenRef  = useRef<Screen>('auth');
-  const screenOpacity = useRef(new Animated.Value(1)).current;
+  const screenOpacity    = useRef(new Animated.Value(1)).current;
+  const screenTranslateX = useRef(new Animated.Value(0)).current;
 
   // Плавное появление при смене экрана
-  const animateScreenChange = (newScreen: Screen) => {
-    Animated.timing(screenOpacity, { toValue: 0, duration: 80, useNativeDriver: true }).start(() => {
-      setScreen(newScreen);
-      Animated.timing(screenOpacity, { toValue: 1, duration: 200, useNativeDriver: true }).start();
+  const [coverOpacity] = useState(new Animated.Value(0));
+  const [coverVisible, setCoverVisible] = useState(false);
+
+  const animateScreenChange = (newScreen: Screen, direction: 'forward' | 'back' = 'forward') => {
+    if (newScreen === screen) return;
+    const inX = direction === 'forward' ? 40 : -40;
+    // 1. Показываем cover поверх старого экрана
+    setCoverVisible(true);
+    coverOpacity.setValue(1);
+    screenTranslateX.setValue(inX);
+    screenOpacity.setValue(0);
+    // 2. Меняем экран под cover
+    setScreen(newScreen);
+    // 3. Убираем cover и показываем новый экран
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        Animated.parallel([
+          Animated.timing(coverOpacity, { toValue: 0, duration: 200, useNativeDriver: true }),
+          Animated.timing(screenOpacity, { toValue: 1, duration: 200, useNativeDriver: true }),
+          Animated.spring(screenTranslateX, { toValue: 0, friction: 7, tension: 70, useNativeDriver: true }),
+        ]).start(() => setCoverVisible(false));
+      });
     });
   };
 
@@ -1112,12 +1131,19 @@ export default function App() {
         onNameChange={name=>setMyName(name)}
         onLogout={async()=>{const uid=myId;stopSubs();await auth.signOut();await Storage.set(`space_id_${uid}`,null);await Storage.set(`onboarding_done_${uid}`,null);setSpace(null);setMyId('');setMyName('');setScreen('auth');}}/>
       {toast&&<Toast msg={toast.msg} ok={toast.ok} tk={tk}/>}
-      <BottomNav screen={screen} onPress={s=>animateScreenChange(s as Screen)} tk={tk} lang={lang} theme={theme}
+      {/* Cover View — перекрывает старый экран при переходе */}
+      {coverVisible && (
+        <Animated.View pointerEvents="none" style={{
+          position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+          backgroundColor: tk.bg, opacity: coverOpacity, zIndex: 999,
+        }}/>
+      )}
+      {TAB_SCREENS.includes(screen) && <BottomNav screen={screen} onPress={s=>animateScreenChange(s as Screen)} tk={tk} lang={lang} theme={theme}
       friendsBadge={members.length>1 ? members.filter(m=>m.id!==myId).filter(m=>{
         const dow=todayDow();
         const todayH=(space?.habits||[]).filter(h=>h.days?.includes(dow));
         return todayH.some(h=>isLogged(h.id,m.id,logs));
-      }).length : 0}/>
+      }).length : 0}/>}
     </View>
   );
 
@@ -1642,15 +1668,22 @@ export default function App() {
           </Text>
         </View>
       )}
-      <Animated.View style={{ flex: 1, opacity: screenOpacity }}>
+      <Animated.View style={{ flex: 1, opacity: screenOpacity, transform: [{ translateX: screenTranslateX }], backgroundColor: tk.bg }}>
         {mainScreen}
       </Animated.View>
-      <BottomNav screen={screen} onPress={s=>animateScreenChange(s as Screen)} tk={tk} lang={lang} theme={theme}
+      {/* Cover View — перекрывает старый экран при переходе */}
+      {coverVisible && (
+        <Animated.View pointerEvents="none" style={{
+          position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+          backgroundColor: tk.bg, opacity: coverOpacity, zIndex: 999,
+        }}/>
+      )}
+      {TAB_SCREENS.includes(screen) && <BottomNav screen={screen} onPress={s=>animateScreenChange(s as Screen)} tk={tk} lang={lang} theme={theme}
       friendsBadge={members.length>1 ? members.filter(m=>m.id!==myId).filter(m=>{
         const dow=todayDow();
         const todayH=(space?.habits||[]).filter(h=>h.days?.includes(dow));
         return todayH.some(h=>isLogged(h.id,m.id,logs));
-      }).length : 0}/>
+      }).length : 0}/>}
       {/* Android-style bottom cross bar для под-экранов */}
       {Platform.OS==='android' && backDestination[screen] && (
         <View style={{position:'absolute',bottom:0,left:0,right:0,
