@@ -76,9 +76,7 @@
     "owner": "hattachment44",
     "description": "Отслеживай привычки вместе с партнёром",
     "sdkVersion": "54.0.0",
-    "newArchEnabled": false,
-    "experiments": {
-      "newArchEnabled": false
-    }
+    "newArchEnabled": true,
+    "experiments": {}
   }
 }
