@@ -68,7 +68,8 @@
           "cameraPermission": "Allow PathTogether to access your camera."
         }
       ],
-      "@react-native-google-signin/google-signin"
+      "@react-native-google-signin/google-signin",
+      "./plugins/withRuStore"
     ],
     "extra": {
       "eas": {

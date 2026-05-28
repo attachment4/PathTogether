@@ -30,7 +30,8 @@
     "react-native-screens": "~4.16.0",
     "react-native-svg": "15.12.1",
     "expo-haptics": "~14.0.1",
-    "@react-native-google-signin/google-signin": "^13.1.0"
+    "@react-native-google-signin/google-signin": "^13.1.0",
+    "@rustore/react-native-rustore-billing-client": "^6.1.0"
   },
   "devDependencies": {
     "@babel/core": "^7.24.0",
