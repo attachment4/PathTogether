@@ -55,7 +55,9 @@
         }
       ],
       "versionCode": 1,
-      "minSdkVersion": 23
+      "minSdkVersion": 23,
+      "softwareKeyboardLayoutMode": "pan",
+      "googleServicesFile": "./google-services.json"
     },
     "plugins": [
       "expo-font",
@@ -64,6 +66,12 @@
         {
           "photosPermission": "Allow PathTogether to access your photos.",
           "cameraPermission": "Allow PathTogether to access your camera."
+        }
+      ],
+      [
+        "@react-native-google-signin/google-signin",
+        {
+          "googleServicesFile": "./google-services.json"
         }
       ]
     ],

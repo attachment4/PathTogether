@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
-  View, Text, TouchableOpacity, ScrollView, TextInput,
+  View, Text, TouchableOpacity, TouchableWithoutFeedback, ScrollView, TextInput,
   KeyboardAvoidingView, Platform, StatusBar, Alert,
   ActivityIndicator, Share, PanResponder, Animated, BackHandler, Modal,
-  Dimensions, useColorScheme,
+  Dimensions, useColorScheme, Keyboard,
 } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import * as Linking from 'expo-linking';
@@ -23,12 +23,14 @@ import {
   scheduleAppReminder,
   scheduleStreakReminder,
   scheduleMorningMotivation,
+  scheduleEveningReminder,
   notifyPartnerDone,
   setupNotificationChannel,
   notifyAchievement,
   scheduleHabitTimeNotifications,
 } from './src/notifications';
 import { buildAchievements } from './src/screens/AchievementsScreen';
+import * as Haptics from 'expo-haptics';
 import { initPurchases } from './src/purchases';
 import { registerDeviceToken, requestPartnerNotification } from './src/pushNotifications';
 const Notifications = { setBadgeCountAsync: async () => {} }; // stub
@@ -44,6 +46,7 @@ import {
 
 import AuthScreen         from './src/screens/AuthScreen';
 import TodayScreen        from './src/screens/TodayScreen';
+import MoodScreen          from './src/screens/MoodScreen';
 import FriendsScreen      from './src/screens/FriendsScreen';
 import CalendarScreen     from './src/screens/CalendarScreen';
 import ProfileScreen      from './src/screens/ProfileScreen';
@@ -64,7 +67,7 @@ const TOP = Platform.OS === 'ios' ? 50 : (StatusBar.currentHeight || 24) + 4;
 // Высота нижней навигации Android — фиксированное значение
 // Gesture nav = ~20px, button nav = ~48px, используем 36 как баланс
 const ANDROID_NAV_BAR = Platform.OS === 'android' ? 36 : 0;
-type Screen = 'onboarding'|'auth'|'today'|'friends'|'add'|'calendar'|'profile'|'addHabit'|'invite'|'detail'|'achievements'|'settings'|'pro'|'paywall'|'stats';
+type Screen = 'onboarding'|'auth'|'today'|'friends'|'add'|'calendar'|'profile'|'addHabit'|'invite'|'detail'|'achievements'|'settings'|'pro'|'paywall'|'mood'|'stats';
 interface Space { id:string; habits:Habit[]; logs:Record<string,boolean>; members:Member[]; }
 
 //  QR Code (pure SVG, без доп. библиотек) 
@@ -479,6 +482,10 @@ export default function App() {
   // Плавное появление при смене экрана
   const [coverOpacity] = useState(new Animated.Value(0));
   const [coverVisible, setCoverVisible] = useState(false);
+  const [noteModal, setNoteModal] = useState<{habitId:string;date:string}|null>(null);
+  const [detailNotes, setDetailNotes] = useState<Record<string,string>>({});
+  const [noteText, setNoteText] = useState('');
+  const [noteKbHeight, setNoteKbHeight] = useState(0);
 
   const animateScreenChange = (newScreen: Screen, direction: 'forward' | 'back' = 'forward') => {
     if (newScreen === screen) return;
@@ -504,7 +511,7 @@ export default function App() {
 
 
 
-  const blank = {name:'',icon:'',color:'#f5f5f5',days:[0,1,2,3,4,5,6],time:'',desc:'',target:0,unit:'',category:'habit' as any};
+  const blank = {name:'',icon:'',color:'#f5f5f5',days:[0,1,2,3,4,5,6],time:'',desc:'',target:0,unit:'',category:'habit' as any, type:'good' as 'good'|'quit', timerSeconds:0, routine:undefined as any, noteEnabled:false};
   const [nh, setNh] = useState(blank);
 
   const tk    = getTK(theme);
@@ -676,9 +683,32 @@ export default function App() {
     const l={...(space?.logs||{})};
     const wasLogged = !!l[key];
     if(l[key]) delete l[key]; else l[key]=true;
+    // Хаптика
+    if (hapticsEnabled) {
+      if (!wasLogged) {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(()=>{});
+      } else {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(()=>{});
+      }
+    }
+    // Вечернее напоминание — если есть невыполненные привычки
+    const todayDow2 = (new Date().getDay()+6)%7;
+    const pendingCount = (space?.habits||[])
+      .filter((h:any)=>!h.archived && h.days?.includes(todayDow2) && !l[`${h.id}_${todayS()}_${myId}`]).length;
+    scheduleEveningReminder(pendingCount, notifEnabled).catch(()=>{});
+    // Показываем modal для заметки если включено и это отметка (не снятие)
+    if (!wasLogged) {
+      const habit = (space?.habits||[]).find((h:any)=>h.id===hid);
+      if (habit?.noteEnabled) {
+        setNoteText('');
+        setNoteModal({habitId:hid, date:todayS()});
+      }
+    }
     // Хаптика: короткий импульс при отметке, двойной при снятии
     // Оптимистичное обновление — сразу обновляем UI без ожидания Firestore
     setSpace(prev => prev ? { ...prev, logs: l } : prev);
+    // Кэш для офлайн режима
+    AsyncStorage.setItem('offline_logs_' + (space?.id||''), JSON.stringify(l)).catch(()=>{});
     try {
       saveL(l).catch(e => console.warn('[toggle saveL]', e)); // fire and forget
       // Обновляем badge и серию
@@ -870,8 +900,32 @@ export default function App() {
 
   // FIX 1: сплэш пока Firebase не ответил
   if (!fontsLoaded||!themeLoaded||!authChecked) return (
-    <View style={{flex:1,backgroundColor:theme==='dark'?'#0a0a0a':'#f2f2f2',alignItems:'center',justifyContent:'center'}}>
-      <ActivityIndicator color={theme==='dark'?'#fff':'#000'}/>
+    <View style={{flex:1,backgroundColor:theme==='dark'?'#0a0a0a':'#f2f2f2',
+      alignItems:'center',justifyContent:'center',gap:20}}>
+      {/* Логотип */}
+      <View style={{alignItems:'center',gap:16}}>
+        <View style={{width:72,height:72,borderRadius:22,
+          backgroundColor:theme==='dark'?'rgba(255,255,255,0.08)':'rgba(0,0,0,0.06)',
+          alignItems:'center',justifyContent:'center',
+          borderWidth:1,borderColor:theme==='dark'?'rgba(255,255,255,0.12)':'rgba(0,0,0,0.08)'}}>
+          <Svg width={36} height={36} viewBox="0 0 24 24" fill="none">
+            <Path d="M12 2L8 7H4l2 5-3 4h5l4 6 4-6h5l-3-4 2-5h-4L12 2z"
+              stroke={theme==='dark'?'#fff':'#000'} strokeWidth="1.5"
+              strokeLinecap="round" strokeLinejoin="round"/>
+          </Svg>
+        </View>
+        <View style={{alignItems:'center',gap:4}}>
+          <Text style={{fontSize:22,fontWeight:'800',
+            color:theme==='dark'?'#fff':'#000',letterSpacing:-0.5}}>
+            PathTogether
+          </Text>
+          <Text style={{fontSize:12,color:theme==='dark'?'rgba(255,255,255,0.4)':'rgba(0,0,0,0.4)',
+            letterSpacing:0.5}}>
+            Build habits together
+          </Text>
+        </View>
+      </View>
+      <ActivityIndicator color={theme==='dark'?'rgba(255,255,255,0.4)':'rgba(0,0,0,0.3)'} size="small"/>
     </View>
   );
 
@@ -1084,6 +1138,11 @@ export default function App() {
       onDeleteAccount={async()=>{const uid=myId;stopSubs();await auth.signOut();setSpace(null);setMyId('');setMyName('');setScreen('auth');}}/>
   );
 
+  if (screen==='mood') return (
+    <MoodScreen myId={myId} lang={lang} tk={tk}
+      onBack={() => animateScreenChange('profile', 'back')} />
+  );
+
   if (screen==='stats') return (
     <View style={{flex:1,paddingTop:TOP,backgroundColor:tk.bg}}>
       <StatisticsScreen
@@ -1121,16 +1180,65 @@ export default function App() {
         partnerStreak={members.length>1?Math.max(0,...habits.map(h=>calcStreak(h.id,members.find(m=>m.id!==myId)?.id||'',logs,h.days))):undefined}
         selectedAvatar={selectedAvatar}
         onAvatarChange={async(id)=>{setSelectedAvatar(id);await Storage.set(`avatar_${myId}`,id);}}
-        onOpenAchievements={()=>setScreen('achievements')}
-        onOpenSettings={()=>setScreen('settings')}
-        onOpenPro={()=>setScreen('paywall')}
-        onOpenStats={()=>setScreen('stats')}
+        onOpenAchievements={()=>animateScreenChange('achievements','forward')}
+        onOpenMood={()=>animateScreenChange('mood','forward')}
+        onOpenSettings={()=>animateScreenChange('settings','forward')}
+        onOpenPro={()=>animateScreenChange('paywall','forward')}
+        onOpenStats={()=>animateScreenChange('stats','forward')}
         onBack={()=>animateScreenChange('calendar')}
         onToggleTheme={async()=>{const n=theme==='dark'?'light':'dark';await Storage.saveTheme(n);setTheme(n);}}
         onLanguageChange={async l=>{setLang(l);await Storage.saveLanguage(l);}}
         onNameChange={name=>setMyName(name)}
         onLogout={async()=>{const uid=myId;stopSubs();await auth.signOut();await Storage.set(`space_id_${uid}`,null);await Storage.set(`onboarding_done_${uid}`,null);setSpace(null);setMyId('');setMyName('');setScreen('auth');}}/>
       {toast&&<Toast msg={toast.msg} ok={toast.ok} tk={tk}/>}
+      {/* Note Modal */}
+      <Modal
+        visible={!!noteModal}
+        transparent
+        animationType="slide"
+        onRequestClose={()=>{Keyboard.dismiss();setNoteModal(null);}}
+        statusBarTranslucent>
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+          <View style={{flex:1,backgroundColor:'rgba(0,0,0,0.5)',justifyContent:'flex-end'}}>
+            <TouchableWithoutFeedback onPress={()=>{}}>
+              <View style={{backgroundColor:tk.bg,borderTopLeftRadius:20,borderTopRightRadius:20,
+                padding:20,paddingBottom:Platform.OS==='ios'?34:20,
+                marginBottom: noteKbHeight}}>
+                <Text style={{fontSize:15,fontWeight:'700',color:tk.text,marginBottom:4}}>
+                  {isEn?'Add a note':'Добавить заметку'}
+                </Text>
+                <Text style={{fontSize:11,color:tk.text3,marginBottom:12}}>
+                  {isEn?'Optional — how did it go?':'Необязательно — как прошло?'}
+                </Text>
+                <TextInput
+                  value={noteText} onChangeText={setNoteText}
+                  placeholder={isEn?'Type something...':'Напишите что-нибудь...'}
+                  placeholderTextColor={tk.text3}
+                  multiline maxLength={200}
+                  style={{backgroundColor:tk.bg2,borderWidth:1,borderColor:tk.border,
+                    borderRadius:14,padding:12,fontSize:14,color:tk.text,
+                    height:72,textAlignVertical:'top',marginBottom:12}}/>
+                <View style={{flexDirection:'row',gap:10}}>
+                  <TouchableOpacity onPress={()=>{Keyboard.dismiss();setNoteModal(null);}}
+                    style={{flex:1,padding:12,borderRadius:14,borderWidth:1,borderColor:tk.border,alignItems:'center'}}>
+                    <Text style={{color:tk.text2,fontSize:14}}>{isEn?'Skip':'Пропустить'}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={async()=>{
+                      Keyboard.dismiss();
+                      if(noteModal && noteText.trim()) await Storage.setNote(myId,noteModal.habitId,noteModal.date,noteText.trim());
+                      setNoteModal(null);
+                    }}
+                    style={{flex:1,padding:12,borderRadius:14,backgroundColor:tk.text,alignItems:'center'}}>
+                    <Text style={{color:tk.bg,fontSize:14,fontWeight:'700'}}>{isEn?'Save':'Сохранить'}</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+
       {/* Cover View — перекрывает старый экран при переходе */}
       {coverVisible && (
         <Animated.View pointerEvents="none" style={{
@@ -1179,23 +1287,42 @@ export default function App() {
             <View style={{marginBottom:16}}>
               <Text style={{fontSize:9,color:tk.text3,letterSpacing:1.5,
                 textTransform:'uppercase',marginBottom:8}}>{isEn?'Quick start':'Быстрый старт'}</Text>
-              <View style={{flexDirection:'row',flexWrap:'wrap',gap:8}}>
-                {(isEn
-                  ? [{n:'Morning run',i:'exercise',d:[0,1,2,3,4]},{n:'Read 20 min',d:[0,1,2,3,4,5,6]},
-                     {n:'Drink water',i:'water',d:[0,1,2,3,4,5,6],t:8,u:'glasses'},{n:'Meditation',i:'meditate',d:[0,1,2,3,4,5,6]},
-                     {n:'No social media',i:'nosocial',d:[0,1,2,3,4]},{n:'Evening walk',i:'walk',d:[0,1,2,3,4,5,6]}]
-                  : [{n:'Утренняя пробежка',i:'exercise',d:[0,1,2,3,4]},{n:'Читать 20 минут',i:'read',d:[0,1,2,3,4,5,6]},
-                     {n:'Пить воду',i:'water',d:[0,1,2,3,4,5,6],t:8,u:'стаканов'},{n:'Медитация',i:'meditate',d:[0,1,2,3,4,5,6]},
-                     {n:'Без соцсетей',i:'nosocial',d:[0,1,2,3,4]},{n:'Вечерняя прогулка',i:'walk',d:[0,1,2,3,4,5,6]}]
-                ).map((tpl:any)=>(
-                  <TouchableOpacity key={tpl.n} onPress={()=>setNh(p=>({...p,
-                    name:tpl.n,days:tpl.d,target:tpl.t||0,unit:tpl.u||'',icon:tpl.i||''}))}
-                    style={{backgroundColor:tk.bg2,borderWidth:1,borderColor:tk.border,
-                      borderRadius:20,paddingHorizontal:12,paddingVertical:6}}>
-                    <Text style={{fontSize:12,color:tk.text2}}>{tpl.n}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
+              {/* Паки по категориям */}
+              {[
+                {
+                  pack: isEn?'🌅 Morning':'🌅 Утро',
+                  items: isEn
+                    ? [{n:'Morning run',i:'exercise',d:[0,1,2,3,4],r:'morning'},{n:'Meditation',i:'meditate',d:[0,1,2,3,4,5,6],r:'morning'},{n:'Cold shower',d:[0,1,2,3,4,5,6],r:'morning'},{n:'Journal',d:[0,1,2,3,4,5,6],r:'morning'}]
+                    : [{n:'Утренняя пробежка',i:'exercise',d:[0,1,2,3,4],r:'morning'},{n:'Медитация',i:'meditate',d:[0,1,2,3,4,5,6],r:'morning'},{n:'Холодный душ',d:[0,1,2,3,4,5,6],r:'morning'},{n:'Дневник',d:[0,1,2,3,4,5,6],r:'morning'}]
+                },
+                {
+                  pack: isEn?'☀️ Day':'☀️ День',
+                  items: isEn
+                    ? [{n:'Drink water',i:'water',d:[0,1,2,3,4,5,6],t:8,u:'glasses',r:'afternoon'},{n:'Read 20 min',i:'read',d:[0,1,2,3,4,5,6],r:'afternoon'},{n:'No social media',i:'nosocial',d:[0,1,2,3,4],r:'afternoon'},{n:'Walk 30 min',i:'walk',d:[0,1,2,3,4,5,6],r:'afternoon'}]
+                    : [{n:'Пить воду',i:'water',d:[0,1,2,3,4,5,6],t:8,u:'стаканов',r:'afternoon'},{n:'Читать 20 минут',i:'read',d:[0,1,2,3,4,5,6],r:'afternoon'},{n:'Без соцсетей',i:'nosocial',d:[0,1,2,3,4],r:'afternoon'},{n:'Прогулка 30 мин',i:'walk',d:[0,1,2,3,4,5,6],r:'afternoon'}]
+                },
+                {
+                  pack: isEn?'🌙 Evening':'🌙 Вечер',
+                  items: isEn
+                    ? [{n:'Evening walk',i:'walk',d:[0,1,2,3,4,5,6],r:'evening'},{n:'No phone before bed',d:[0,1,2,3,4,5,6],r:'evening',type:'quit'},{n:'Gratitude',d:[0,1,2,3,4,5,6],r:'evening'},{n:'Sleep by 23:00',d:[0,1,2,3,4,5,6],r:'evening'}]
+                    : [{n:'Вечерняя прогулка',i:'walk',d:[0,1,2,3,4,5,6],r:'evening'},{n:'Без телефона перед сном',d:[0,1,2,3,4,5,6],r:'evening',type:'quit'},{n:'Благодарность',d:[0,1,2,3,4,5,6],r:'evening'},{n:'Сон до 23:00',d:[0,1,2,3,4,5,6],r:'evening'}]
+                },
+              ].map(({pack,items})=>(
+                <View key={pack} style={{marginBottom:10}}>
+                  <Text style={{fontSize:11,color:tk.text3,marginBottom:6,fontWeight:'600'}}>{pack}</Text>
+                  <View style={{flexDirection:'row',flexWrap:'wrap',gap:6}}>
+                    {items.map((tpl:any)=>(
+                      <TouchableOpacity key={tpl.n} onPress={()=>setNh((p:any)=>({...p,
+                        name:tpl.n,days:tpl.d,target:tpl.t||0,unit:tpl.u||'',
+                        icon:tpl.i||'',routine:tpl.r,type:tpl.type||'good'}))}
+                        style={{backgroundColor:tk.bg2,borderWidth:1,borderColor:tk.border,
+                          borderRadius:18,paddingHorizontal:10,paddingVertical:5}}>
+                        <Text style={{fontSize:11,color:tk.text2}}>{tpl.n}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+              ))}
             </View>
           )}
           <Text style={{fontSize:9,color:tk.text3,letterSpacing:1.5,textTransform:'uppercase',marginBottom:8}}>{isEn?'Name':'Название'}</Text>
@@ -1203,6 +1330,102 @@ export default function App() {
             placeholder={isEn?'Morning run':'Утренняя пробежка'} placeholderTextColor={tk.text3}
             style={{backgroundColor:tk.bg2,borderWidth:1,borderColor:tk.border,borderRadius:12,padding:13,fontSize:13,color:tk.text,marginBottom:20}}/>
           {/* Категория */}
+          {/* Тип привычки */}
+          <Text style={{fontSize:9,color:tk.text3,letterSpacing:1.5,textTransform:'uppercase',marginBottom:12,marginTop:4}}>
+            {isEn?'Habit type':'Тип привычки'}
+          </Text>
+          <View style={{flexDirection:'row',gap:10,marginBottom:20}}>
+            {([
+              {t:'good', color:'#8cb8a0', ru:'Полезная',   en:'Build habit',
+               path:'M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z'},
+              {t:'quit', color:'#c8a0a0', ru:'Избавиться', en:'Quit habit',
+               path:'M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm5 13H7v-2h10v2z'},
+            ] as any[]).map(({t,color,ru,en,path})=>{
+              const sel = (nh as any).type===t;
+              return (
+                <TouchableOpacity key={t} onPress={()=>setNh((p:any)=>({...p,type:t}))}
+                  style={{flex:1,padding:14,borderRadius:16,borderWidth:1.5,alignItems:'center',gap:8,
+                    borderColor:sel?color:tk.border,
+                    backgroundColor:sel?(color+'18'):tk.bg2}}>
+                  <View style={{width:40,height:40,borderRadius:12,
+                    backgroundColor:sel?(color+'22'):tk.bg3,
+                    alignItems:'center',justifyContent:'center'}}>
+                    <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
+                      <Path d={path} stroke={sel?color:tk.text3} strokeWidth="1.5"
+                        strokeLinecap="round" strokeLinejoin="round"/>
+                    </Svg>
+                  </View>
+                  <Text style={{fontSize:12,fontWeight:'700',color:sel?color:tk.text3}}>
+                    {isEn?en:ru}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          {/* Рутина */}
+          <Text style={{fontSize:9,color:tk.text3,letterSpacing:1.5,textTransform:'uppercase',marginBottom:12}}>
+            {isEn?'Routine':'Рутина'}
+          </Text>
+          <View style={{flexDirection:'row',gap:8,marginBottom:20}}>
+            {([
+              [undefined, isEn?'Any time':'Любое время', ''],
+              ['morning',  isEn?'Morning':'Утро',        '🌅'],
+              ['afternoon',isEn?'Afternoon':'День',      '☀️'],
+              ['evening',  isEn?'Evening':'Вечер',       '🌙'],
+            ] as [string|undefined,string,string][]).map(([val,label,emoji])=>{
+              const sel=(nh as any).routine===val;
+              return (
+                <TouchableOpacity key={String(val)} onPress={()=>setNh((p:any)=>({...p,routine:val}))}
+                  style={{flex:1,padding:10,borderRadius:14,borderWidth:1.5,alignItems:'center',gap:4,
+                    borderColor:sel?tk.text:tk.border,
+                    backgroundColor:sel?tk.bg3:tk.bg2}}>
+                  {emoji?<Text style={{fontSize:16}}>{emoji}</Text>:null}
+                  <Text style={{fontSize:11,fontWeight:'600',color:sel?tk.text:tk.text3}}>{label}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          {/* Заметки при выполнении */}
+          <TouchableOpacity onPress={()=>setNh((p:any)=>({...p,noteEnabled:!(p as any).noteEnabled}))}
+            style={{flexDirection:'row',alignItems:'center',gap:12,marginBottom:20,
+              padding:14,borderRadius:14,borderWidth:1,borderColor:tk.border,backgroundColor:tk.bg2}}>
+            <View style={{width:22,height:22,borderRadius:6,borderWidth:1.5,
+              borderColor:(nh as any).noteEnabled?tk.text:tk.border,
+              backgroundColor:(nh as any).noteEnabled?tk.text:'transparent',
+              alignItems:'center',justifyContent:'center'}}>
+              {(nh as any).noteEnabled&&(
+                <Svg width={12} height={12} viewBox="0 0 24 24" fill="none">
+                  <Path d="M5 13l4 4L19 7" stroke={tk.bg} strokeWidth="2.5" strokeLinecap="round"/>
+                </Svg>
+              )}
+            </View>
+            <View style={{flex:1}}>
+              <Text style={{fontSize:14,fontWeight:'600',color:tk.text}}>
+                {isEn?'Ask for a note on completion':'Запрашивать заметку при выполнении'}
+              </Text>
+              <Text style={{fontSize:11,color:tk.text3,marginTop:2}}>
+                {isEn?'A short note each time you complete this habit':'Короткая заметка каждый раз'}
+              </Text>
+            </View>
+          </TouchableOpacity>
+
+          {/* Таймер */}
+          <Text style={{fontSize:9,color:tk.text3,letterSpacing:1.5,textTransform:'uppercase',marginBottom:10}}>
+            {isEn?'Timer (optional)':'Таймер (необязательно)'}
+          </Text>
+          <View style={{flexDirection:'row',flexWrap:'wrap',gap:8,marginBottom:20}}>
+            {([[0,'—'],[300,'5 мин'],[600,'10 мин'],[900,'15 мин'],[1200,'20 мин'],[1800,'30 мин']] as [number,string][]).map(([sec,label])=>(
+              <TouchableOpacity key={sec} onPress={()=>setNh((p:any)=>({...p,timerSeconds:sec}))}
+                style={{paddingHorizontal:12,paddingVertical:8,borderRadius:10,borderWidth:1,
+                  borderColor:(nh as any).timerSeconds===sec?tk.text:tk.border,
+                  backgroundColor:(nh as any).timerSeconds===sec?tk.bg3:tk.bg2}}>
+                <Text style={{fontSize:12,color:(nh as any).timerSeconds===sec?tk.text:tk.text3}}>{label}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
           <Text style={{fontSize:9,color:tk.text3,letterSpacing:1.5,textTransform:'uppercase',marginBottom:8,marginTop:4}}>
             {isEn?'Category':'Категория'}
           </Text>
@@ -1231,17 +1454,29 @@ export default function App() {
           </View>
 
           <Text style={{fontSize:9,color:tk.text3,letterSpacing:1.5,textTransform:'uppercase',marginBottom:10}}>{isEn?'Color':'Цвет карточки'}</Text>
-          <View style={{flexDirection:'row',flexWrap:'wrap',gap:8,marginBottom:20}}>
-            {[
-              '#e8e8e8','#f2b8b8','#f7cfa0','#f7ebb0','#b8e0c8','#b8d4e8','#cbb8e8','#f0b8d0',
-              '#a8d8d4','#d4b8e0','#b8d8b8','#e8d8a0','#b8d0e8','#e8c0a8','#c0ccd8','#d4c0a8',
-              '#c8b8e8','#e8c8b8','#b8e0e0','#e0d8b8','#c8d8c0','#e8b8c8','#c0d8d8','#d0c8b8',
-            ].map(c=>(
-              <TouchableOpacity key={c} onPress={()=>setNh(p=>({...p,color:c}))}
-                style={{width:40,height:40,borderRadius:20,backgroundColor:c,
-                  borderWidth:nh.color===c?3:1,
-                  borderColor:nh.color===c?tk.text:tk.border}}/>
-            ))}
+          <View style={{flexDirection:'row',flexWrap:'wrap',gap:10,marginBottom:20}}>
+            {/* Пастельные */}
+            <View style={{flexDirection:'row',flexWrap:'wrap',gap:8,marginBottom:8}}>
+              {['#f5cdc8','#f5d9b0','#f5e8a0','#c8e8c8','#a8cce8','#c8b8e8','#f0b8d4','#a8d8d0',
+                '#b8e0b8','#e8d8a8','#a8c8e8','#f0c8a8',
+              ].map(c=>(
+                <TouchableOpacity key={c} onPress={()=>setNh((p:any)=>({...p,color:c}))}
+                  style={{width:38,height:38,borderRadius:19,backgroundColor:c,
+                    borderWidth:(nh as any).color===c?3:0,borderColor:tk.text,
+                    shadowColor:c,shadowOpacity:(nh as any).color===c?0.5:0,shadowRadius:6,elevation:(nh as any).color===c?3:0}}/>
+              ))}
+            </View>
+            {/* Насыщенные */}
+            <View style={{flexDirection:'row',flexWrap:'wrap',gap:8}}>
+              {['#e8756a','#e89d5a','#d4b84a','#6abf7a','#5a9fd4','#8b6abf','#d46a9d','#5ab8b0',
+                '#2d3748','#4a5568','#744210','#1a365d',
+              ].map(c=>(
+                <TouchableOpacity key={c} onPress={()=>setNh((p:any)=>({...p,color:c}))}
+                  style={{width:38,height:38,borderRadius:19,backgroundColor:c,
+                    borderWidth:(nh as any).color===c?3:0,borderColor:tk.text,
+                    shadowColor:c,shadowOpacity:(nh as any).color===c?0.5:0,shadowRadius:6,elevation:(nh as any).color===c?3:0}}/>
+              ))}
+            </View>
           </View>
           <Text style={{fontSize:9,color:tk.text3,letterSpacing:1.5,textTransform:'uppercase',marginBottom:8}}>
             {isEn?'Time':'Время'} <Text style={{textTransform:'none',fontSize:9,color:tk.text3}}>({isEn?'optional':'необязательно'})</Text>
@@ -1386,13 +1621,24 @@ export default function App() {
 
   //  DETAIL 
   if (screen==='detail'&&detailH) {
-    const h=detailH; const own=h.ownerId===myId;
+    const h=detailH;
+    // Load notes for this habit (last 14 days)
+    const loadDetailNotes = async () => {
+      const dates: string[] = [];
+      for (let i = 0; i < 14; i++) {
+        const d = new Date(); d.setDate(d.getDate() - i);
+        dates.push(d.toISOString().split('T')[0]);
+      }
+      const notes = await Storage.getNotesForHabit(myId, h.id, dates);
+      setDetailNotes(notes);
+    };
+    if (Object.keys(detailNotes).length === 0) loadDetailNotes(); const own=h.ownerId===myId;
     const myStreak=calcStreak(h.id,myId,logs,h.days);
     return (
       <View style={{flex:1,paddingTop:TOP,backgroundColor:tk.bg}}>
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{padding:20,paddingBottom:60}}>
           <View style={{flexDirection:'row',alignItems:'center',gap:12,marginBottom:24}}>
-            <TouchableOpacity onPress={()=>{setDetailH(null);setScreen('today');}}
+            <TouchableOpacity onPress={()=>{setDetailH(null);setDetailNotes({});animateScreenChange('today','back');}}
               style={{width:36,height:36,borderRadius:10,backgroundColor:tk.bg2,borderWidth:1,borderColor:tk.border,alignItems:'center',justifyContent:'center'}}>
               <Text style={{color:tk.text,fontSize:16}}>←</Text>
             </TouchableOpacity>
@@ -1542,12 +1788,55 @@ export default function App() {
           })()}
 
           {own&&(
-            <TouchableOpacity onPress={()=>Alert.alert(isEn?'Delete?':'Удалить?',isEn?'Cannot be undone':'Нельзя отменить',[
-              {text:isEn?'Cancel':'Отмена',style:'cancel'},
-              {text:isEn?'Delete':'Удалить',style:'destructive',onPress:()=>delHabit(h.id)}
-            ])} style={{marginTop:4,padding:14,borderRadius:14,borderWidth:1,borderColor:tk.border,backgroundColor:tk.bg2,alignItems:'center'}}>
-              <Text style={{color:'#ff6b6b',fontSize:13,fontWeight:'600'}}>{isEn?'Delete habit':'Удалить привычку'}</Text>
-            </TouchableOpacity>
+            <>
+            {Object.keys(detailNotes).length > 0 && (
+              <View style={{marginTop:8,marginBottom:4}}>
+                <Text style={{fontSize:9,color:tk.text3,letterSpacing:1.5,
+                  textTransform:'uppercase',marginBottom:10}}>
+                  {isEn?'Notes':'Заметки'}
+                </Text>
+                {Object.entries(detailNotes)
+                  .sort(([a],[b])=>b.localeCompare(a))
+                  .slice(0,5)
+                  .map(([date,note])=>{
+                    const d=new Date(date+'T12:00:00');
+                    const dateStr=isEn
+                      ?d.toLocaleDateString('en',{month:'short',day:'numeric'})
+                      :d.toLocaleDateString('ru',{month:'short',day:'numeric'});
+                    return (
+                      <View key={date} style={{flexDirection:'row',gap:10,
+                        paddingVertical:10,borderBottomWidth:1,borderBottomColor:tk.border}}>
+                        <Text style={{fontSize:11,color:tk.text3,width:42}}>{dateStr}</Text>
+                        <Text style={{flex:1,fontSize:13,color:tk.text,lineHeight:18}}>{note}</Text>
+                      </View>
+                    );
+                  })
+                }
+              </View>
+            )}
+
+            <View style={{marginTop:8}}>
+              {/* Separator */}
+              <View style={{height:1,backgroundColor:tk.border,marginBottom:0}}/>
+              <TouchableOpacity
+                onPress={async()=>{
+                  const updated=(space?.habits||[]).map((x:any)=>x.id===h.id?{...x,archived:!h.archived}:x);
+                  await saveH(updated);
+                  setDetailH(null); setScreen('today');
+                }}
+                style={{paddingVertical:16,paddingHorizontal:4,borderBottomWidth:1,borderBottomColor:tk.border}}>
+                <Text style={{color:tk.text2,fontSize:15}}>
+                  {h.archived?(isEn?'Unarchive':'Разархивировать'):(isEn?'Archive':'Архивировать')}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={()=>Alert.alert(isEn?'Delete habit?':'Удалить привычку?',isEn?'This cannot be undone.':'Это действие нельзя отменить.',[
+                {text:isEn?'Cancel':'Отмена',style:'cancel'},
+                {text:isEn?'Delete':'Удалить',style:'destructive',onPress:()=>delHabit(h.id)}
+              ])} style={{paddingVertical:16,paddingHorizontal:4}}>
+                <Text style={{color:'#e05555',fontSize:15}}>{isEn?'Delete habit':'Удалить привычку'}</Text>
+              </TouchableOpacity>
+            </View>
+            </>
           )}
         </ScrollView>
         {toast&&<Toast msg={toast.msg} ok={toast.ok} tk={tk}/>}
@@ -1661,16 +1950,70 @@ export default function App() {
     <View style={{flex:1,paddingTop:TOP,backgroundColor:tk.bg}}
       {...(TAB_SCREENS.includes(screen) ? tabSwipePan.panHandlers : {})}>
       {!isOnline && (
-        <View style={{ backgroundColor: tk.bg3, borderBottomWidth: 0.5, borderColor: tk.border,
-          paddingVertical: 6, alignItems: 'center' }}>
-          <Text style={{ fontSize: 11, color: tk.text3 }}>
-            {(lang === 'en' ? 'Offline — changes will sync when connected' : 'Офлайн — изменения синхронизируются при подключении')}
+        <View style={{ backgroundColor: '#7c4dff22', borderBottomWidth: 1, borderColor: '#7c4dff44',
+          paddingVertical: 8, paddingHorizontal: 16, flexDirection: 'row',
+          alignItems: 'center', gap: 8 }}>
+          <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#7c4dff' }}/>
+          <Text style={{ fontSize: 12, color: tk.text2, flex: 1 }}>
+            {lang === 'en'
+              ? 'Offline mode — data saved locally, will sync when connected'
+              : lang === 'uk'
+                ? 'Офлайн режим — дані збережені локально'
+                : 'Офлайн режим — данные сохранены локально, синхронизируются при подключении'}
           </Text>
         </View>
       )}
       <Animated.View style={{ flex: 1, opacity: screenOpacity, transform: [{ translateX: screenTranslateX }], backgroundColor: tk.bg }}>
         {mainScreen}
       </Animated.View>
+      {/* Note Modal */}
+      <Modal
+        visible={!!noteModal}
+        transparent
+        animationType="slide"
+        onRequestClose={()=>{Keyboard.dismiss();setNoteModal(null);}}
+        statusBarTranslucent>
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+          <View style={{flex:1,backgroundColor:'rgba(0,0,0,0.5)',justifyContent:'flex-end'}}>
+            <TouchableWithoutFeedback onPress={()=>{}}>
+              <View style={{backgroundColor:tk.bg,borderTopLeftRadius:20,borderTopRightRadius:20,
+                padding:20,paddingBottom:Platform.OS==='ios'?34:20,
+                marginBottom: noteKbHeight}}>
+                <Text style={{fontSize:15,fontWeight:'700',color:tk.text,marginBottom:4}}>
+                  {isEn?'Add a note':'Добавить заметку'}
+                </Text>
+                <Text style={{fontSize:11,color:tk.text3,marginBottom:12}}>
+                  {isEn?'Optional — how did it go?':'Необязательно — как прошло?'}
+                </Text>
+                <TextInput
+                  value={noteText} onChangeText={setNoteText}
+                  placeholder={isEn?'Type something...':'Напишите что-нибудь...'}
+                  placeholderTextColor={tk.text3}
+                  multiline maxLength={200}
+                  style={{backgroundColor:tk.bg2,borderWidth:1,borderColor:tk.border,
+                    borderRadius:14,padding:12,fontSize:14,color:tk.text,
+                    height:72,textAlignVertical:'top',marginBottom:12}}/>
+                <View style={{flexDirection:'row',gap:10}}>
+                  <TouchableOpacity onPress={()=>{Keyboard.dismiss();setNoteModal(null);}}
+                    style={{flex:1,padding:14,borderRadius:14,borderWidth:1,borderColor:tk.border,alignItems:'center'}}>
+                    <Text style={{color:tk.text2,fontSize:14}}>{isEn?'Skip':'Пропустить'}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={async()=>{
+                      Keyboard.dismiss();
+                      if(noteModal && noteText.trim()) await Storage.setNote(myId,noteModal.habitId,noteModal.date,noteText.trim());
+                      setNoteModal(null);
+                    }}
+                    style={{flex:1,padding:14,borderRadius:14,backgroundColor:tk.text,alignItems:'center'}}>
+                    <Text style={{color:tk.bg,fontSize:14,fontWeight:'700'}}>{isEn?'Save':'Сохранить'}</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+
       {/* Cover View — перекрывает старый экран при переходе */}
       {coverVisible && (
         <Animated.View pointerEvents="none" style={{
