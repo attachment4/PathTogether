@@ -79,7 +79,7 @@
     "owner": "pathtogether44",
     "description": "Отслеживай привычки вместе с партнёром",
     "sdkVersion": "54.0.0",
-    "newArchEnabled": true,
+    "newArchEnabled": false,
     "experiments": {}
   }
 }
