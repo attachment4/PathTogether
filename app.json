@@ -72,11 +72,11 @@
     ],
     "extra": {
       "eas": {
-        "projectId": "31ebf816-da6d-4ad7-94c0-997f1095d8fc"
+        "projectId": "04dc5688-4d48-46d1-8087-5e14b74639e4"
       },
       "rustore": true
     },
-    "owner": "hattachment44",
+    "owner": "pathtogether44",
     "description": "Отслеживай привычки вместе с партнёром",
     "sdkVersion": "54.0.0",
     "newArchEnabled": true,
