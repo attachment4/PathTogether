@@ -68,12 +68,7 @@
           "cameraPermission": "Allow PathTogether to access your camera."
         }
       ],
-      [
-        "@react-native-google-signin/google-signin",
-        {
-          "googleServicesFile": "./google-services.json"
-        }
-      ]
+      "@react-native-google-signin/google-signin"
     ],
     "extra": {
       "eas": {
