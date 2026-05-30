@@ -2,6 +2,10 @@ try { require('dotenv').config(); } catch (_) {}
 
 module.exports = ({ config }) => ({
   ...config,
+  android: {
+    ...config.android,
+    googleServicesFile: process.env.GOOGLE_SERVICES_JSON ?? './google-services.json',
+  },
   extra: {
     ...config.extra,
     FIREBASE_API_KEY:             process.env.FIREBASE_API_KEY,
