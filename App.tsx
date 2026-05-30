@@ -375,6 +375,7 @@ export default function App() {
   const [fontsLoaded] = useFonts({Nunito_700Bold,Nunito_500Medium,Nunito_800ExtraBold});
 
   const [myId,        setMyId]        = useState('');
+  const isGuest = () => myId === 'guest';
   const [myName,      setMyName]      = useState('');
   const [space,       setSpace]       = useState<Space|null>(null);
   const [screen,      setScreen]      = useState<Screen>('auth');
@@ -533,7 +534,39 @@ export default function App() {
 
   //  Auth listener 
   useEffect(() => {
+    // Таймаут офлайн-входа: если Firebase молчит 3 сек — берём юзера из кэша
+    let resolved = false;
+    const offlineTimer = setTimeout(async () => {
+      if (resolved) return;
+      resolved = true;
+      try {
+        const [lastUid, lastName] = await Promise.all([
+          Storage.get<string>('last_uid'),
+          Storage.get<string>('last_name'),
+        ]);
+        if (lastUid) {
+          setMyId(lastUid);
+          setMyName(lastName || 'User');
+          setThemeLoaded(true);
+          setAuthChecked(true);
+          // Загружаем данные из локального кэша Firestore
+          const session = await Storage.loadUserSession(lastUid);
+          if (!session.onbDone) { setScreen('onboarding'); return; }
+          if (session.spaceId) startSubs(session.spaceId);
+          setScreen('today');
+        } else {
+          // Новый юзер без кэша — показываем экран входа
+          setAuthChecked(true);
+          setScreen('auth');
+        }
+      } catch {
+        setAuthChecked(true);
+        setScreen('auth');
+      }
+    }, 3000);
+
     const unsub = onAuthStateChanged(auth, async (user) => {
+      if (!resolved) { resolved = true; clearTimeout(offlineTimer); }
       if (!user) {
         stopSubs();
         setSpace(null); setMyId('');
@@ -568,7 +601,7 @@ export default function App() {
       // Подписка — в фоне
       loadSubscription(user.uid).then(sub => setSubscription(sub)).catch(()=>{});
     });
-    return () => { unsub(); stopSubs(); };
+    return () => { unsub(); stopSubs(); clearTimeout(offlineTimer); };
   }, []);
 
   useEffect(() => {
@@ -640,10 +673,40 @@ export default function App() {
     });
   };
 
+  // ── Гостевой вход ────────────────────────────────────────────────────────────
+  const handleGuest = async () => {
+    const guestId = 'guest';
+    const guestName = lang === 'en' ? 'Guest' : 'Гость';
+    setMyId(guestId);
+    setMyName(guestName);
+    await Storage.saveName(guestName);
+    await Storage.set('last_uid', guestId);
+    await Storage.set('last_name', guestName);
+    // Пропускаем онбординг для гостя — сразу в приложение
+    setAuthChecked(true);
+    setScreen('today');
+  };
+
+  // ── Гостевое пространство (только AsyncStorage, без Firestore) ──────────────
+  const GUEST_SPACE_KEY = 'guest_space_id';
+  const ensureGuestSpace = async (): Promise<Space> => {
+    const existingId = await Storage.get<string>(GUEST_SPACE_KEY);
+    const sid = existingId || 'guest_space_' + mkid();
+    if (!existingId) await Storage.set(GUEST_SPACE_KEY, sid);
+    const [habits, logs] = await Promise.all([
+      Storage.get<any[]>('guest_habits_' + sid).then(h => h || []),
+      Storage.get<Record<string,boolean>>('guest_logs_' + sid).then(l => l || {}),
+    ]);
+    const members: Member[] = [{ id: 'guest', name: myName || 'Гость', role: 'owner', joined: todayS() }];
+    const s = { id: sid, habits, logs, members };
+    setSpace(s);
+    return s;
+  };
+
   const ensureSpace = async (): Promise<Space> => {
+    if (myId === 'guest') return ensureGuestSpace();
     if (space) return space;
     if (!myId) throw new Error('Not authenticated');
-    // Если space уже загружен - возвращаем его напрямую (самый быстрый путь)
     if (space?.id) return space;
     const existingId = await Storage.loadCurrentSpace(myId);
     if (existingId) {
@@ -652,7 +715,6 @@ export default function App() {
     }
     const sid = mkid();
     const members:Member[] = [{id:myId,name:myName,role:'owner',joined:todayS()}];
-    // ВАЖНО: сначала создаём members (с memberIds/ownerIds) — Rules проверяют их при записи habits
     await Storage.setMembers(sid, members);
     await Promise.all([
       Storage.setHabits(sid,[]),
@@ -666,19 +728,17 @@ export default function App() {
 
   const saveH = async (h:Habit[],sid?:string) => {
     const id=sid||space?.id; if(!id) return;
-    try { await Storage.setHabits(id,h); }
-    catch (e) {
-      console.warn('[saveL]', e);
-      // Не показываем ошибку - UI уже обновлён оптимистично
-    }
+    try {
+      if (myId === 'guest') { await Storage.set('guest_habits_' + id, h); return; }
+      await Storage.setHabits(id,h);
+    } catch (e) { console.warn('[saveH]', e); }
   };
   const saveL = async (l:Record<string,boolean>,sid?:string) => {
     const id=sid||space?.id; if(!id) return;
-    try { await Storage.setLogs(id,l); }
-    catch (e) {
-      console.warn('[saveL]', e);
-      // Не показываем ошибку - UI уже обновлён оптимистично
-    }
+    try {
+      if (myId === 'guest') { await Storage.set('guest_logs_' + id, l); return; }
+      await Storage.setLogs(id,l);
+    } catch (e) { console.warn('[saveL]', e); }
   };
 
   const toggle = async (hid:string) => {
@@ -796,6 +856,20 @@ export default function App() {
   };
 
   const genInvite = async () => {
+    // Гостям нужна регистрация для приглашений
+    if (isGuest()) {
+      Alert.alert(
+        lang === 'en' ? 'Create an account' : 'Создайте аккаунт',
+        lang === 'en'
+          ? 'To invite a partner you need to register. It only takes a minute!'
+          : 'Чтобы пригласить партнёра, нужно зарегистрироваться. Это займёт минуту!',
+        [
+          { text: lang === 'en' ? 'Later' : 'Позже', style: 'cancel' },
+          { text: lang === 'en' ? 'Register' : 'Зарегистрироваться', onPress: () => setScreen('auth') },
+        ]
+      );
+      return '';
+    }
     // Проверяем подписку перед созданием инвайта
     if (!canInvite(subscription)) {
       setScreen('paywall');
@@ -961,7 +1035,7 @@ export default function App() {
 
   if (screen==='auth') return (
     <View style={{flex:1,paddingTop:TOP,backgroundColor:tk.bg}}>
-      <AuthScreen tk={tk} lang={lang} onSuccess={async(uid,name,isNew)=>{
+      <AuthScreen tk={tk} lang={lang} onGuest={handleGuest} onSuccess={async(uid,name,isNew)=>{
         isRegistering.current = true;
         try {
           setupNotificationChannel().catch(()=>{});
@@ -1138,7 +1212,7 @@ export default function App() {
       }}
       onPartnerNotifToggle={async(v)=>{setPartnerNotif(v);await Storage.set('partner_notif',v);}}
       onBack={()=>setScreen('profile')}
-      onDeleteAccount={async()=>{const uid=myId;stopSubs();await auth.signOut();setSpace(null);setMyId('');setMyName('');setScreen('auth');}}/>
+      onDeleteAccount={async()=>{ if(isGuest()){setMyId('');setMyName('');setScreen('auth');return;} const uid=myId;stopSubs();await auth.signOut();setSpace(null);setMyId('');setMyName('');setScreen('auth');}}/>
   );
 
   if (screen==='mood') return (
@@ -1192,7 +1266,9 @@ export default function App() {
         onToggleTheme={async()=>{const n=theme==='dark'?'light':'dark';await Storage.saveTheme(n);setTheme(n);}}
         onLanguageChange={async l=>{setLang(l);await Storage.saveLanguage(l);}}
         onNameChange={name=>setMyName(name)}
-        onLogout={async()=>{const uid=myId;stopSubs();await auth.signOut();await Storage.set(`space_id_${uid}`,null);await Storage.set(`onboarding_done_${uid}`,null);setSpace(null);setMyId('');setMyName('');setScreen('auth');}}/>
+        onLogout={async()=>{
+          if (isGuest()) { setMyId(''); setMyName(''); setScreen('auth'); return; }
+          const uid=myId;stopSubs();await auth.signOut();await Storage.set(`space_id_${uid}`,null);await Storage.set(`onboarding_done_${uid}`,null);setSpace(null);setMyId('');setMyName('');setScreen('auth');}}/>
       {toast&&<Toast msg={toast.msg} ok={toast.ok} tk={tk}/>}
       {/* Note Modal */}
       <Modal
@@ -1949,6 +2025,26 @@ export default function App() {
   return (
     <View style={{flex:1,paddingTop:TOP,backgroundColor:tk.bg}}
       {...(TAB_SCREENS.includes(screen) ? tabSwipePan.panHandlers : {})}>
+      {isGuest() && (
+        <View style={{ backgroundColor: '#7c4dff22', borderBottomWidth: 1, borderColor: '#7c4dff44',
+          paddingVertical: 10, paddingHorizontal: 16, flexDirection: 'row',
+          alignItems: 'center', gap: 10 }}>
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontSize: 12, color: tk.text, fontWeight: '600' }}>
+              {lang === 'en' ? 'Guest mode' : 'Гостевой режим'}
+            </Text>
+            <Text style={{ fontSize: 11, color: tk.text3, marginTop: 1 }}>
+              {lang === 'en' ? 'Register to sync data and invite partners' : 'Зарегистрируйтесь чтобы сохранить данные и пригласить партнёра'}
+            </Text>
+          </View>
+          <TouchableOpacity onPress={() => setScreen('auth')}
+            style={{ backgroundColor: tk.text, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6 }}>
+            <Text style={{ fontSize: 12, fontWeight: '700', color: tk.bg }}>
+              {lang === 'en' ? 'Sign up' : 'Войти'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      )}
       {!isOnline && (
         <View style={{ backgroundColor: '#7c4dff22', borderBottomWidth: 1, borderColor: '#7c4dff44',
           paddingVertical: 8, paddingHorizontal: 16, flexDirection: 'row',

@@ -17,12 +17,20 @@ const firebaseConfig = {
 };
 
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
-// Включаем offline persistence - данные кэшируются локально
-export const db = initializeFirestore(app, {
-  localCache: persistentLocalCache({
-    tabManager: persistentMultipleTabManager()
-  })
-});
+// persistentLocalCache требует IndexedDB — недоступно в Expo Go и некоторых средах
+// Используем с fallback на обычный кэш
+let db: ReturnType<typeof initializeFirestore>;
+try {
+  db = initializeFirestore(app, {
+    localCache: persistentLocalCache({
+      tabManager: persistentMultipleTabManager()
+    })
+  });
+} catch {
+  const { getFirestore } = require('firebase/firestore');
+  db = getFirestore(app);
+}
+export { db };
 
 let auth: ReturnType<typeof getAuth>;
 try {

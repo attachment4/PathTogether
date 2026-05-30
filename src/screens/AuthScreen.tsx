@@ -41,6 +41,7 @@ interface Props {
   tk: Theme;
   lang?: string;
   onSuccess: (uid: string, name: string, isNew: boolean) => void;
+  onGuest?: () => void;
 }
 
 const Field = ({ label, value, onChange, placeholder, secure, tk }: {
@@ -86,7 +87,7 @@ const Field = ({ label, value, onChange, placeholder, secure, tk }: {
   );
 };
 
-export default function AuthScreen({ tk, lang = 'ru', onSuccess }: Props) {
+export default function AuthScreen({ tk, lang = 'ru', onSuccess, onGuest }: Props) {
   const [tab,      setTab]      = useState<'login'|'reg'>('login');
   const [name,     setName]     = useState('');
   const [email,    setEmail]    = useState('');
@@ -306,6 +307,16 @@ export default function AuthScreen({ tk, lang = 'ru', onSuccess }: Props) {
               {(lang === 'en' ? 'Terms of Use & Privacy Policy' : 'Условия использования и политика конфиденциальности')}
             </Text>
           </TouchableOpacity>
+
+          {onGuest && (
+            <TouchableOpacity
+              onPress={onGuest}
+              style={{ marginTop: 20, alignItems: 'center', paddingVertical: 8 }}>
+              <Text style={{ fontSize: 13, color: tk.text3 }}>
+                {lang === 'en' ? 'Continue as guest →' : lang === 'uk' ? 'Продовжити як гість →' : 'Продолжить без регистрации →'}
+              </Text>
+            </TouchableOpacity>
+          )}
 
         </ScrollView>
       </KeyboardAvoidingView>
