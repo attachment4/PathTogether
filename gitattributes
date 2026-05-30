@@ -1,0 +1,48 @@
+# PathTogether — нормализация переносов строк
+# Все текстовые файлы хранятся в LF (Unix), на Windows конвертируются автоматически
+
+* text=auto eol=lf
+
+# JavaScript / TypeScript
+*.js    text eol=lf
+*.jsx   text eol=lf
+*.ts    text eol=lf
+*.tsx   text eol=lf
+*.json  text eol=lf
+
+# Стили и разметка
+*.css   text eol=lf
+*.html  text eol=lf
+*.xml   text eol=lf
+*.md    text eol=lf
+
+# Конфиги
+*.env           text eol=lf
+*.gitattributes text eol=lf
+*.gitignore     text eol=lf
+*.eslintrc      text eol=lf
+*.babelrc       text eol=lf
+eas.json        text eol=lf
+app.json        text eol=lf
+
+# Gradle / Android (критично — должны быть LF)
+*.gradle        text eol=lf
+gradlew         text eol=lf
+*.properties    text eol=lf
+*.kt            text eol=lf
+*.java          text eol=lf
+
+# Бинарные файлы — не трогаем
+*.png    binary
+*.jpg    binary
+*.jpeg   binary
+*.gif    binary
+*.webp   binary
+*.ico    binary
+*.ttf    binary
+*.otf    binary
+*.woff   binary
+*.woff2  binary
+*.apk    binary
+*.aab    binary
+*.keystore binary

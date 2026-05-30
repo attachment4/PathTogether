@@ -1,0 +1,73 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAuthed() {
+      return request.auth != null;
+    }
+
+    function isMember(spaceId) {
+      let ref = /databases/$(database)/documents/spaces/$(spaceId)/data/members;
+      return isAuthed() && (
+        !exists(ref) ||
+        (exists(ref) && request.auth.uid in get(ref).data.memberIds)
+      );
+    }
+
+    function isOwner(spaceId) {
+      let ref = /databases/$(database)/documents/spaces/$(spaceId)/data/members;
+      return isAuthed() && (
+        !exists(ref) ||
+        (exists(ref) && request.auth.uid in get(ref).data.ownerIds)
+      );
+    }
+
+    match /users/{uid} {
+      allow read, write: if isAuthed() && request.auth.uid == uid;
+    }
+
+    match /spaces/{spaceId} {
+      match /habits/{habitId} {
+        allow read, write: if isAuthed();
+      }
+
+      match /data/{document} {
+        allow read, write: if isAuthed();
+      }
+
+      match /notifications/{notifId} {
+        allow create: if isAuthed();
+        allow read, update: if isAuthed();
+        allow delete: if false;
+      }
+    }
+
+    match /invites/{code} {
+      allow read:   if isAuthed();
+      allow create: if isAuthed() &&
+                       request.resource.data.creatorId == request.auth.uid;
+      allow update: if false;
+      allow delete: if isAuthed() && (
+                       resource.data.creatorId == request.auth.uid ||
+                       isMember(resource.data.spaceId)
+                    );
+    }
+
+    match /config/{document} {
+      allow read: if isAuthed();
+      allow write: if false; // Общий запрет
+    }
+
+    // early_birds — транзакционная запись разрешена авторизованным
+    match /config/early_birds {
+      allow read:   if isAuthed();
+      allow write:  if isAuthed();
+    }
+
+    match /subscriptions/{uid} {
+      allow read, write: if isAuthed() && request.auth.uid == uid;
+    }
+
+  }
+}

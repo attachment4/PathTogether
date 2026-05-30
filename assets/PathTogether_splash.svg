@@ -1,0 +1,93 @@
+<svg width="2732" height="2732" viewBox="0 0 2732 2732" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#1a1040"/>
+      <stop offset="100%" stop-color="#0d0820"/>
+    </linearGradient>
+    <linearGradient id="fig1" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#A78BFA"/>
+      <stop offset="100%" stop-color="#7C3AED"/>
+    </linearGradient>
+    <linearGradient id="fig2" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#F472B6"/>
+      <stop offset="100%" stop-color="#DB2777"/>
+    </linearGradient>
+    <linearGradient id="heartGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#F472B6"/>
+      <stop offset="100%" stop-color="#EC4899"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#7C3AED"/>
+      <stop offset="100%" stop-color="#4F46E5"/>
+    </linearGradient>
+    <linearGradient id="pathGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#7C3AED" stop-opacity="0.3"/>
+      <stop offset="50%" stop-color="#818CF8" stop-opacity="0.8"/>
+      <stop offset="100%" stop-color="#7C3AED" stop-opacity="0.3"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="2732" height="2732" fill="url(#bg)"/>
+
+  <!-- Glow orbs -->
+  <ellipse cx="900" cy="1200" rx="500" ry="400" fill="#7C3AED" opacity="0.12"/>
+  <ellipse cx="1832" cy="1200" rx="500" ry="400" fill="#DB2777" opacity="0.10"/>
+  <ellipse cx="1366" cy="800" rx="350" ry="280" fill="#818CF8" opacity="0.10"/>
+
+  <!-- Stars -->
+  <circle cx="400" cy="500" r="8" fill="#FCD34D" opacity="0.6"/>
+  <circle cx="2300" cy="600" r="6" fill="#FCD34D" opacity="0.6"/>
+  <circle cx="500" cy="1800" r="5" fill="#A78BFA" opacity="0.6"/>
+  <circle cx="2200" cy="1700" r="7" fill="#F472B6" opacity="0.6"/>
+  <circle cx="1366" cy="350" r="5" fill="#FCD34D" opacity="0.6"/>
+  <path d="M380 460 L390 435 L400 460 L425 470 L400 480 L390 505 L380 480 L355 470 Z" fill="#FCD34D" opacity="0.5"/>
+  <path d="M2280 565 L2288 542 L2296 565 L2318 573 L2296 581 L2288 604 L2280 581 L2258 573 Z" fill="#A78BFA" opacity="0.5"/>
+
+  <!-- Path -->
+  <path d="M 200 2200 Q 800 2060 1366 2060 Q 1932 2060 2532 2200" stroke="url(#pathGrad)" stroke-width="20" fill="none" stroke-linecap="round"/>
+
+  <!-- FIGURE 1 (scaled 4x) -->
+  <g transform="translate(766, 900) scale(4)">
+    <circle cx="0" cy="0" r="38" fill="url(#fig1)"/>
+    <circle cx="0" cy="0" r="38" fill="none" stroke="#A78BFA" stroke-width="2" opacity="0.5"/>
+    <circle cx="-10" cy="-5" r="5" fill="#1a1040" opacity="0.7"/>
+    <circle cx="10" cy="-5" r="5" fill="#1a1040" opacity="0.7"/>
+    <path d="M-10 10 Q0 18 10 10" stroke="#1a1040" stroke-width="2.5" fill="none" stroke-linecap="round" opacity="0.7"/>
+    <rect x="-24" y="44" width="48" height="90" rx="20" fill="url(#fig1)"/>
+    <path d="M24 65 Q62 55 82 60" stroke="#A78BFA" stroke-width="12" fill="none" stroke-linecap="round"/>
+    <path d="M-24 65 Q-48 80 -58 100" stroke="#A78BFA" stroke-width="12" fill="none" stroke-linecap="round"/>
+    <path d="M-10 134 Q-16 180 -22 220" stroke="#7C3AED" stroke-width="14" fill="none" stroke-linecap="round"/>
+    <path d="M10 134 Q16 180 24 220" stroke="#7C3AED" stroke-width="14" fill="none" stroke-linecap="round"/>
+  </g>
+
+  <!-- FIGURE 2 (scaled 4x) -->
+  <g transform="translate(1600, 900) scale(4)">
+    <circle cx="0" cy="0" r="38" fill="url(#fig2)"/>
+    <circle cx="0" cy="0" r="38" fill="none" stroke="#F472B6" stroke-width="2" opacity="0.5"/>
+    <circle cx="-10" cy="-5" r="5" fill="#1a1040" opacity="0.7"/>
+    <circle cx="10" cy="-5" r="5" fill="#1a1040" opacity="0.7"/>
+    <path d="M-10 10 Q0 18 10 10" stroke="#1a1040" stroke-width="2.5" fill="none" stroke-linecap="round" opacity="0.7"/>
+    <rect x="-24" y="44" width="48" height="90" rx="20" fill="url(#fig2)"/>
+    <path d="M-24 65 Q-62 55 -82 60" stroke="#F472B6" stroke-width="12" fill="none" stroke-linecap="round"/>
+    <path d="M24 65 Q48 80 58 100" stroke="#F472B6" stroke-width="12" fill="none" stroke-linecap="round"/>
+    <path d="M-10 134 Q-16 180 -22 220" stroke="#DB2777" stroke-width="14" fill="none" stroke-linecap="round"/>
+    <path d="M10 134 Q16 180 24 220" stroke="#DB2777" stroke-width="14" fill="none" stroke-linecap="round"/>
+  </g>
+
+  <!-- Joined hands -->
+  <ellipse cx="1366" cy="1290" rx="88" ry="64" fill="url(#accent)" opacity="0.9"/>
+  <ellipse cx="1366" cy="1290" rx="88" ry="64" fill="none" stroke="#818CF8" stroke-width="6" opacity="0.6"/>
+
+  <!-- Heart -->
+  <g transform="translate(1366, 640) scale(4)">
+    <path d="M0,-28 C-8,-42 -32,-42 -32,-20 C-32,0 0,24 0,24 C0,24 32,0 32,-20 C32,-42 8,-42 0,-28 Z" fill="url(#heartGrad)" opacity="0.95"/>
+    <path d="M0,-28 C-8,-42 -32,-42 -32,-20 C-32,0 0,24 0,24 C0,24 32,0 32,-20 C32,-42 8,-42 0,-28 Z" fill="none" stroke="#F9A8D4" stroke-width="2" opacity="0.6"/>
+    <path d="M-16,-26 Q-10,-32 -4,-28" stroke="#FDE8F0" stroke-width="2.5" fill="none" stroke-linecap="round" opacity="0.7"/>
+  </g>
+
+  <!-- Text -->
+  <text x="1366" y="2430" text-anchor="middle" font-family="system-ui,-apple-system,sans-serif" font-size="88" font-weight="300" fill="#C4B5FD" letter-spacing="56">PATH</text>
+  <line x1="766" y1="2460" x2="1966" y2="2460" stroke="#818CF8" stroke-width="2" opacity="0.35"/>
+  <text x="1366" y="2560" text-anchor="middle" font-family="system-ui,-apple-system,sans-serif" font-size="152" font-weight="700" fill="#FFFFFF" letter-spacing="16">TOGETHER</text>
+</svg>

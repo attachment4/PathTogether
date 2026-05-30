@@ -1,0 +1,98 @@
+<svg width="1024" height="1024" viewBox="0 0 680 680" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#1a1040"/>
+      <stop offset="100%" stop-color="#0d0820"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#7C3AED"/>
+      <stop offset="100%" stop-color="#4F46E5"/>
+    </linearGradient>
+    <linearGradient id="pathGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#7C3AED" stop-opacity="0.3"/>
+      <stop offset="50%" stop-color="#818CF8" stop-opacity="0.8"/>
+      <stop offset="100%" stop-color="#7C3AED" stop-opacity="0.3"/>
+    </linearGradient>
+    <linearGradient id="fig1" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#A78BFA"/>
+      <stop offset="100%" stop-color="#7C3AED"/>
+    </linearGradient>
+    <linearGradient id="fig2" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#F472B6"/>
+      <stop offset="100%" stop-color="#DB2777"/>
+    </linearGradient>
+    <linearGradient id="heartGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#F472B6"/>
+      <stop offset="100%" stop-color="#EC4899"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="0" y="0" width="680" height="680" rx="152" fill="url(#bg)"/>
+
+  <g opacity="0.08">
+    <circle cx="100" cy="100" r="2" fill="#818CF8"/>
+    <circle cx="200" cy="100" r="2" fill="#818CF8"/>
+    <circle cx="300" cy="100" r="2" fill="#818CF8"/>
+    <circle cx="400" cy="100" r="2" fill="#818CF8"/>
+    <circle cx="500" cy="100" r="2" fill="#818CF8"/>
+    <circle cx="580" cy="100" r="2" fill="#818CF8"/>
+    <circle cx="100" cy="200" r="2" fill="#818CF8"/>
+    <circle cx="580" cy="200" r="2" fill="#818CF8"/>
+    <circle cx="100" cy="580" r="2" fill="#818CF8"/>
+    <circle cx="580" cy="580" r="2" fill="#818CF8"/>
+  </g>
+
+  <ellipse cx="240" cy="340" rx="120" ry="100" fill="#7C3AED" opacity="0.18"/>
+  <ellipse cx="440" cy="340" rx="120" ry="100" fill="#DB2777" opacity="0.14"/>
+  <ellipse cx="340" cy="200" rx="80" ry="60" fill="#818CF8" opacity="0.12"/>
+
+  <path d="M 80 560 Q 200 520 340 520 Q 480 520 600 560" stroke="url(#pathGrad)" stroke-width="6" fill="none" stroke-linecap="round"/>
+  <path d="M 120 590 Q 220 555 340 550 Q 460 555 560 590" stroke="#4F46E5" stroke-width="2" fill="none" stroke-linecap="round" opacity="0.4"/>
+
+  <circle cx="140" cy="180" r="3" fill="#FCD34D" opacity="0.7"/>
+  <circle cx="530" cy="220" r="2" fill="#FCD34D" opacity="0.7"/>
+  <circle cx="160" cy="440" r="2" fill="#A78BFA" opacity="0.7"/>
+  <circle cx="510" cy="400" r="2.5" fill="#F472B6" opacity="0.7"/>
+  <circle cx="340" cy="130" r="2" fill="#FCD34D" opacity="0.7"/>
+  <path d="M130 160 L133 154 L136 160 L142 163 L136 166 L133 172 L130 166 L124 163 Z" fill="#FCD34D" opacity="0.6"/>
+  <path d="M524 195 L526 190 L528 195 L533 197 L528 199 L526 204 L524 199 L519 197 Z" fill="#A78BFA" opacity="0.6"/>
+
+  <circle cx="248" cy="290" r="38" fill="url(#fig1)"/>
+  <circle cx="248" cy="290" r="38" fill="none" stroke="#A78BFA" stroke-width="2" opacity="0.5"/>
+  <circle cx="238" cy="285" r="5" fill="#1a1040" opacity="0.7"/>
+  <circle cx="258" cy="285" r="5" fill="#1a1040" opacity="0.7"/>
+  <path d="M238 300 Q248 308 258 300" stroke="#1a1040" stroke-width="2.5" fill="none" stroke-linecap="round" opacity="0.7"/>
+  <rect x="224" y="334" width="48" height="90" rx="20" fill="url(#fig1)"/>
+  <path d="M272 355 Q310 345 330 350" stroke="#A78BFA" stroke-width="12" fill="none" stroke-linecap="round"/>
+  <path d="M224 355 Q200 370 190 390" stroke="#A78BFA" stroke-width="12" fill="none" stroke-linecap="round"/>
+  <path d="M238 424 Q232 470 226 510" stroke="#7C3AED" stroke-width="14" fill="none" stroke-linecap="round"/>
+  <path d="M258 424 Q264 470 272 510" stroke="#7C3AED" stroke-width="14" fill="none" stroke-linecap="round"/>
+
+  <circle cx="432" cy="290" r="38" fill="url(#fig2)"/>
+  <circle cx="432" cy="290" r="38" fill="none" stroke="#F472B6" stroke-width="2" opacity="0.5"/>
+  <circle cx="422" cy="285" r="5" fill="#1a1040" opacity="0.7"/>
+  <circle cx="442" cy="285" r="5" fill="#1a1040" opacity="0.7"/>
+  <path d="M422 300 Q432 308 442 300" stroke="#1a1040" stroke-width="2.5" fill="none" stroke-linecap="round" opacity="0.7"/>
+  <rect x="408" y="334" width="48" height="90" rx="20" fill="url(#fig2)"/>
+  <path d="M408 355 Q370 345 350 350" stroke="#F472B6" stroke-width="12" fill="none" stroke-linecap="round"/>
+  <path d="M456 355 Q480 370 490 390" stroke="#F472B6" stroke-width="12" fill="none" stroke-linecap="round"/>
+  <path d="M422 424 Q416 470 410 510" stroke="#DB2777" stroke-width="14" fill="none" stroke-linecap="round"/>
+  <path d="M442 424 Q448 470 454 510" stroke="#DB2777" stroke-width="14" fill="none" stroke-linecap="round"/>
+
+  <ellipse cx="340" cy="358" rx="22" ry="16" fill="url(#accent)" opacity="0.9"/>
+  <ellipse cx="340" cy="358" rx="22" ry="16" fill="none" stroke="#818CF8" stroke-width="1.5" opacity="0.6"/>
+
+  <g transform="translate(340, 165)">
+    <path d="M0,-28 C-8,-42 -32,-42 -32,-20 C-32,0 0,24 0,24 C0,24 32,0 32,-20 C32,-42 8,-42 0,-28 Z" fill="url(#heartGrad)" opacity="0.95"/>
+    <path d="M0,-28 C-8,-42 -32,-42 -32,-20 C-32,0 0,24 0,24 C0,24 32,0 32,-20 C32,-42 8,-42 0,-28 Z" fill="none" stroke="#F9A8D4" stroke-width="2" opacity="0.6"/>
+    <path d="M-16,-26 Q-10,-32 -4,-28" stroke="#FDE8F0" stroke-width="2.5" fill="none" stroke-linecap="round" opacity="0.7"/>
+  </g>
+
+  <path d="M248 270 Q270 220 340 180" stroke="#818CF8" stroke-width="1.5" fill="none" stroke-dasharray="5,4" opacity="0.35"/>
+  <path d="M432 270 Q410 220 340 180" stroke="#F472B6" stroke-width="1.5" fill="none" stroke-dasharray="5,4" opacity="0.35"/>
+  <circle cx="340" cy="165" r="56" fill="none" stroke="#F472B6" stroke-width="1" opacity="0.25"/>
+
+  <text x="340" y="604" text-anchor="middle" font-family="system-ui,-apple-system,sans-serif" font-size="22" font-weight="300" fill="#C4B5FD" letter-spacing="14">PATH</text>
+  <line x1="200" y1="613" x2="480" y2="613" stroke="#818CF8" stroke-width="0.5" opacity="0.35"/>
+  <text x="340" y="648" text-anchor="middle" font-family="system-ui,-apple-system,sans-serif" font-size="38" font-weight="700" fill="#FFFFFF" letter-spacing="4">TOGETHER</text>
+</svg>

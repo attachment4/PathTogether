@@ -1,0 +1,41 @@
+{
+  "name": "pathtogether",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "postinstall": "node -e \"const fs=require('fs');const p='node_modules/react-native-gesture-handler/lib/commonjs/PlatformConstants.js';const c='\\\"use strict\\\";Object.defineProperty(exports,\\\"__esModule\\\",{value:true});exports.default=void 0;var r=require(\\\"react-native\\\");var d=exports.default=(()=>{try{return r.NativeModules?.PlatformConstants??r.Platform.constants??{};}catch(e){return r.Platform.constants??{};}})();';fs.writeFileSync(p,c);console.log(\\\"Patched PlatformConstants\\\");\""
+  },
+  "dependencies": {
+    "@expo-google-fonts/nunito": "^0.2.3",
+    "@react-native-async-storage/async-storage": "2.2.0",
+    "expo": "~54.0.6",
+    "expo-asset": "~12.0.13",
+    "expo-clipboard": "~8.0.8",
+    "expo-crypto": "~15.0.9",
+    "expo-font": "~14.0.11",
+    "expo-image-picker": "~17.0.11",
+    "expo-linear-gradient": "~15.0.8",
+    "expo-linking": "~8.0.12",
+    "expo-network": "~8.0.8",
+    "expo-status-bar": "~3.0.9",
+    "firebase": "^10.14.1",
+    "react": "19.1.0",
+    "react-native": "0.81.5",
+    "react-native-gesture-handler": "~2.28.0",
+    "react-native-qrcode-svg": "^6.3.21",
+    "react-native-safe-area-context": "~5.6.0",
+    "react-native-screens": "~4.16.0",
+    "react-native-svg": "15.12.1",
+    "expo-haptics": "~14.0.1",
+    "@react-native-google-signin/google-signin": "^13.1.0"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.24.0",
+    "@types/react": "~18.2.45",
+    "dotenv": "^16.4.5",
+    "typescript": "~5.3.3"
+  }
+}

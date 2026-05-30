@@ -1,0 +1,86 @@
+{
+  "expo": {
+    "name": "PathTogether",
+    "slug": "pathtogether",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "pathtogether",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "cover",
+      "backgroundColor": "#0a0a0a"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.attach4.pathtogether"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0a0a0a"
+      },
+      "package": "com.attach4.pathtogether",
+      "permissions": [
+        "android.permission.INTERNET",
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.VIBRATE",
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.USE_BIOMETRIC",
+        "android.permission.USE_FINGERPRINT"
+      ],
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "attachment4.github.io",
+              "pathPrefix": "/PathTogether/invite.html"
+            },
+            {
+              "scheme": "https",
+              "host": "pathtogether.app",
+              "pathPrefix": "/invite"
+            },
+            {
+              "scheme": "pathtogether"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
+        }
+      ],
+      "versionCode": 1,
+      "minSdkVersion": 23,
+      "softwareKeyboardLayoutMode": "pan",
+      "googleServicesFile": "./google-services.json"
+    },
+    "plugins": [
+      "expo-font",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow PathTogether to access your photos.",
+          "cameraPermission": "Allow PathTogether to access your camera."
+        }
+      ],
+      "@react-native-google-signin/google-signin",
+      "./plugins/withRuStore"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "9eb18cbf-9bd3-49e1-b098-b71b0f717b55"
+      },
+      "rustore": true
+    },
+    "owner": "attach",
+    "description": "Отслеживай привычки вместе с партнёром",
+    "sdkVersion": "54.0.0",
+    "newArchEnabled": false,
+    "experiments": {}
+  }
+}
