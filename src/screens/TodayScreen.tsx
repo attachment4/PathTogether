@@ -714,7 +714,7 @@ export default function TodayScreen({
   const today = new Date();
   const dow = todayDow();
   const ds  = todayS();
-  const partner = members.find(m => m.id !== myId);
+  const partner = members.find(m => m && m.id !== myId);
   const hasPartner = !!partner;
 
   const [snack, setSnack] = useState<{ habit: Habit; index: number } | null>(null);

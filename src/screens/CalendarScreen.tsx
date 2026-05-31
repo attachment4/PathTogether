@@ -93,7 +93,7 @@ export default function CalendarScreen({ myId, lang, tk, habits, members, logs, 
     }
   };
 
-  const partner = members.find(m => m.id !== myId);
+  const partner = members.find(m => m && m.id !== myId);
 
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const firstDow = (new Date(year, month, 1).getDay() + 6) % 7;

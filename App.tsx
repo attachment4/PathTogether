@@ -682,7 +682,7 @@ export default function App() {
 
     unsubH.current = Storage.subscribeHabits(sid, habits => {
       try {
-        const safeHabits = Array.isArray(habits) ? habits : [];
+        const safeHabits = Array.isArray(habits) ? habits.filter(Boolean) : [];
         setSpace(p => {
           // Если space другого id — игнорируем; если null — создаём (Firestore кэш быстрее setState)
           if (p && p.id !== sid) return p;
@@ -705,7 +705,7 @@ export default function App() {
           const base = prev ?? {id:sid, habits:[], logs:{}, members:[]};
           // Уведомления партнёра — только если оба участника уже загружены
           if (base.members.length > 1 && partnerNotif) {
-            const partner = base.members.find(m => m.id !== uid);
+            const partner = base.members.find(m => m && m.id !== uid);
             if (partner) {
               setTimeout(() => {
                 Object.keys(safeNewLogs).forEach(key => {
@@ -732,7 +732,7 @@ export default function App() {
 
     unsubM.current = Storage.subscribeMembers(sid, members => {
       try {
-        const safeMembers = Array.isArray(members) ? members : [];
+        const safeMembers = Array.isArray(members) ? members.filter(Boolean) : [];
         setSpace(p => {
           if (p && p.id !== sid) return p;
           return p ? {...p, members: safeMembers} : {id:sid, habits:[], logs:{}, members:safeMembers};
@@ -1370,7 +1370,7 @@ export default function App() {
       <AchievementsScreen lang={lang} tk={tk} habitCount={habits.length}
         totalDone={Object.keys(logs).filter(k=>k.includes(`_${myId}`)).length}
         maxStreak={maxStreak}
-        partnerTotalDone={members.length>1?Object.keys(logs).filter(k=>k.includes(`_${members.find(m=>m.id!==myId)?.id||''}`)).length:undefined}
+        partnerTotalDone={members.length>1?Object.keys(logs).filter(k=>k.includes(`_${members.find(m=>m&&m.id!==myId)?.id||''}`)).length:undefined}
         friendCount={members.length>1?1:0} onBack={()=>setScreen('profile')}/>
     </View>
   );
@@ -1383,9 +1383,9 @@ export default function App() {
         habitCount={habits.length} friendCount={members.length>1?1:0}
         totalDone={Object.keys(logs).filter(k=>k.includes(`_${myId}`)).length}
         maxStreak={maxStreak}
-        partnerName={members.find(m=>m.id!==myId)?.name}
-        partnerJoined={members.find(m=>m.id!==myId)?.joined}
-        partnerStreak={members.length>1?Math.max(0,...habits.map(h=>calcStreak(h.id,members.find(m=>m.id!==myId)?.id||'',logs,h.days))):undefined}
+        partnerName={members.find(m=>m&&m.id!==myId)?.name}
+        partnerJoined={members.find(m=>m&&m.id!==myId)?.joined}
+        partnerStreak={members.length>1?Math.max(0,...habits.map(h=>calcStreak(h.id,members.find(m=>m&&m.id!==myId)?.id||'',logs,h.days))):undefined}
         selectedAvatar={selectedAvatar}
         onAvatarChange={async(id)=>{setSelectedAvatar(id);await Storage.set(`avatar_${myId}`,id);}}
         onOpenAchievements={()=>animateScreenChange('achievements','forward')}
@@ -1415,7 +1415,7 @@ export default function App() {
         }}/>
       )}
       {TAB_SCREENS.includes(screen) && <BottomNav screen={screen} onPress={s=>s==='add'?setScreen('addHabit'):animateScreenChange(s as Screen)} tk={tk} lang={lang} theme={theme}
-      friendsBadge={members.length>1 ? members.filter(m=>m.id!==myId).filter(m=>{
+      friendsBadge={members.length>1 ? members.filter(m=>m&&m.id!==myId).filter(m=>{
         const dow=todayDow();
         const todayH=(space?.habits||[]).filter(h=>!h.archived && h.days?.includes(dow));
         return todayH.some(h=>isLogged(h.id,m.id,logs));
@@ -1878,7 +1878,7 @@ export default function App() {
             </View>
           </View>
           <Text style={{fontSize:10,color:tk.text3,letterSpacing:1,textTransform:'uppercase',fontWeight:'400',marginBottom:12}}>7 {isEn?'days':'дней'}</Text>
-          {members.map(m=>(
+          {members.filter(Boolean).map(m=>(
             <View key={m.id} style={{flexDirection:'row',alignItems:'center',gap:8,marginBottom:10}}>
               <View style={{width:26,height:26,borderRadius:13,backgroundColor:tk.bg2,borderWidth:1,borderColor:tk.border,alignItems:'center',justifyContent:'center'}}>
                 <Text style={{fontSize:10,fontWeight:'700',color:m.id===myId?tk.text:tk.text3}}>{(m.name||'')[0]?.toUpperCase()}</Text>
@@ -2054,7 +2054,7 @@ export default function App() {
         onLeaveSpace={async()=>{
           if(!space?.id||!myId) return;
           // Убираем себя из members
-          const newMembers=members.filter(m=>m.id!==myId);
+          const newMembers=members.filter(m=>m&&m.id!==myId);
           await Storage.setMembers(space.id,newMembers);
           stopSubs();
           // Удаляем spaceId из AsyncStorage И Firestore — иначе при перезапуске вернётся
@@ -2208,7 +2208,7 @@ export default function App() {
         }}/>
       )}
       {TAB_SCREENS.includes(screen) && <BottomNav screen={screen} onPress={s=>s==='add'?setScreen('addHabit'):animateScreenChange(s as Screen)} tk={tk} lang={lang} theme={theme}
-      friendsBadge={members.length>1 ? members.filter(m=>m.id!==myId).filter(m=>{
+      friendsBadge={members.length>1 ? members.filter(m=>m&&m.id!==myId).filter(m=>{
         const dow=todayDow();
         const todayH=(space?.habits||[]).filter(h=>!h.archived && h.days?.includes(dow));
         return todayH.some(h=>isLogged(h.id,m.id,logs));

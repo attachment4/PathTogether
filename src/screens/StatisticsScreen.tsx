@@ -129,7 +129,7 @@ export default function StatisticsScreen({
   const [statsTab, setStatsTab] = useState<'me'|'partner'>(statsTabProp ?? 'me');
   const handleTabChange = (t: 'me'|'partner') => { setStatsTab(t); onStatsTabChange?.(t); };
   const statsUserId = statsTab === 'partner' && hasPair ? (members.find((m:any)=>m.id!==myId)?.id||myId) : myId;
-  const partner = members.find(m => m.id !== myId);
+  const partner = members.find(m => m && m.id !== myId);
 
   const now = new Date();
   const todayStr = now.toISOString().split('T')[0];

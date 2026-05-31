@@ -26,7 +26,7 @@ export default function FriendsScreen({ myId, myName, lang, tk, habits, members,
   const isEn = lang === 'en';
   const L = (ru: string, en: string, uk?: string, be?: string, kk?: string) =>
     lang==='en' ? en : lang==='uk' ? (uk||ru) : lang==='be' ? (be||ru) : lang==='kk' ? (kk||ru) : ru;
-  const partner = members.find(m => m.id !== myId);
+  const partner = members.find(m => m && m.id !== myId);
   const dow = todayDow();
   const todayH = habits.filter(h => h.days?.includes(dow));
   const [joinCode, setJoinCode] = useState('');
@@ -52,7 +52,7 @@ export default function FriendsScreen({ myId, myName, lang, tk, habits, members,
             <Text style={{ fontSize: 9, color: tk.text3, letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 12 }}>
               {(lang === 'en' ? 'Today' : lang==='uk' ? 'Сьогодні' : lang==='be' ? 'Сёння' : lang==='kk' ? 'Бүгін' : 'Сегодня')}
             </Text>
-            {members.map(m => {
+            {members.filter(Boolean).map(m => {
               const done = todayH.filter(h => isLogged(h.id, m.id, logs)).length;
               const pct = todayH.length ? done / todayH.length : 0;
               const isMe = m.id === myId;
