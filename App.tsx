@@ -893,17 +893,37 @@ export default function App() {
     setLoading(true);
     try {
       const cs=await ensureSpace();
-      let h=[...(cs.habits||[])];
       const isEdit=!!editH;
-      if(editH){h=h.map(x=>x.id===editH.id?{...x,...nh}:x);}
-      else{h.push({...nh,id:mkid(),ownerId:myId,ownerName:myName,createdAt:todayS(),order:h.length});}
-      scheduleHabitTimeNotifications(h).catch(()=>{});
-      await saveH(h,cs.id);
+      // Формируем объект привычки
+      const habitId = editH ? editH.id : mkid();
+      const existingHabit = editH ? (cs.habits||[]).find(h=>h.id===editH.id) : null;
+      const newHabit: Habit = existingHabit
+        ? {...existingHabit, ...nh}
+        : {...nh, id:habitId, ownerId:myId, ownerName:myName, createdAt:todayS(), order:(cs.habits||[]).length};
+      // Используем upsertHabit (точечный setDoc) вместо setHabits (batch delete+write).
+      // setHabits после join мог удалять привычки партнёра если подписки ещё не загрузились,
+      // что приводило к откату оптимистичного обновления сразу после сохранения.
+      if (myId !== 'guest') {
+        await Storage.upsertHabit(cs.id, newHabit);
+      } else {
+        // Для гостя — полный список в AsyncStorage
+        const h = isEdit
+          ? (cs.habits||[]).map(x=>x.id===habitId?newHabit:x)
+          : [...(cs.habits||[]), newHabit];
+        await Storage.set('guest_habits_'+cs.id, h);
+      }
+      // Планируем уведомления для актуального списка привычек
+      const allHabits = isEdit
+        ? (cs.habits||[]).map(x=>x.id===habitId?newHabit:x)
+        : [...(cs.habits||[]), newHabit];
+      scheduleHabitTimeNotifications(allHabits).catch(()=>{});
       // Оптимистичное обновление: применяем сразу, не ждём Firestore listener
-      // Используем функциональный апдейт чтобы не зависеть от замыкания
       setSpace(prev => {
-        if (!prev) return {id:cs.id,habits:h,logs:{},members:[]};
-        return {...prev, id:cs.id, habits:h};
+        if (!prev) return {id:cs.id,habits:allHabits,logs:{},members:[]};
+        const updated = isEdit
+          ? prev.habits.map(x=>x.id===habitId?newHabit:x)
+          : [...prev.habits.filter(x=>x.id!==habitId), newHabit];
+        return {...prev, habits:updated};
       });
       toast$(isEdit?(isEn?'Saved ':'Сохранено '):(isEn?'Added ':'Добавлено '));
       setNh(blank);setEditH(null);
