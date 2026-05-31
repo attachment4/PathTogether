@@ -3,6 +3,7 @@
  */
 
 import { Alert, Linking } from 'react-native';
+import { auth } from './firebase';
 
 export const PRODUCT_IDS = {
   duo:  'com.pathtogether.duo.monthly',
@@ -14,9 +15,13 @@ export const PRICES = {
   team: { ru: '299 ₽/мес', en: '299 ₽/mo' },
 };
 
-// Firebase Functions URL
-// URL Vercel сервера — замени после деплоя на vercel.app URL
 const FUNCTIONS_BASE = 'https://path-together-server.vercel.app';
+
+async function getIdToken(): Promise<string> {
+  const user = auth.currentUser;
+  if (!user) throw new Error('Not authenticated');
+  return user.getIdToken();
+}
 
 export async function initPurchases(_userId: string): Promise<void> {}
 
@@ -24,27 +29,32 @@ export async function purchasePlan(
   plan: 'duo' | 'team',
   lang: string,
   uid: string,
-  _idToken?: string,
 ): Promise<{ success: boolean; cancelled?: boolean; paymentUrl?: string }> {
   const isEn = lang === 'en';
 
   try {
-    // Создаём платёж через Firebase Function
+    const idToken = await getIdToken();
+
     const response = await fetch(`${FUNCTIONS_BASE}/api/create-payment`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${idToken}`,
+      },
       body: JSON.stringify({ uid, plan }),
     });
 
-    const text = await response.text();
-    const json = JSON.parse(text);
+    if (!response.ok) {
+      throw new Error(`Server error: ${response.status}`);
+    }
+
+    const json = await response.json();
     const confirmationUrl = json?.result?.confirmationUrl || json?.confirmationUrl;
 
     if (!confirmationUrl) {
       throw new Error('No payment URL');
     }
 
-    // Открываем страницу оплаты ЮКассы в браузере
     const canOpen = await Linking.canOpenURL(confirmationUrl);
     if (canOpen) {
       await Linking.openURL(confirmationUrl);
@@ -63,19 +73,31 @@ export async function purchasePlan(
   }
 }
 
+/**
+ * Проверяет статус плана на сервере и возвращает актуальные данные.
+ * Активация плана происходит только через вебхук ЮКассы — клиент только читает.
+ */
 export async function restorePurchases(
   lang: string,
   uid: string,
-  _idToken?: string,
 ): Promise<{ plan: 'duo' | 'team' | 'free'; expiresAt?: string } | null> {
   const isEn = lang === 'en';
 
   try {
+    const idToken = await getIdToken();
+
     const response = await fetch(`${FUNCTIONS_BASE}/api/check-plan`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${idToken}`,
+      },
       body: JSON.stringify({ uid }),
     });
+
+    if (!response.ok) {
+      throw new Error(`Server error: ${response.status}`);
+    }
 
     const json = await response.json();
     const result = json?.result;

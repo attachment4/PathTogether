@@ -584,7 +584,7 @@ export default function App() {
           if (!session.onbDone) { setScreen('onboarding'); return; }
           if (session.spaceId) {
             setSpace({ id: session.spaceId, habits: [], logs: {}, members: [] });
-            startSubs(session.spaceId);
+            startSubs(session.spaceId, lastUid);
           }
           setScreen('today');
         } else {
@@ -599,6 +599,7 @@ export default function App() {
     }, 3000);
 
     const unsub = onAuthStateChanged(auth, async (user) => {
+      try {
       if (!resolved) { resolved = true; clearTimeout(offlineTimer); }
       if (!user) {
         stopSubs();
@@ -631,7 +632,7 @@ export default function App() {
       if (!session.onbDone) { setScreen('onboarding'); return; }
       if (session.spaceId) {
         setSpace({ id: session.spaceId, habits: [], logs: {}, members: [] });
-        startSubs(session.spaceId);
+        startSubs(session.spaceId, user.uid); // передаём uid явно, т.к. setMyId асинхронный
       }
       setScreen('today');
       // Подписка — в фоне
@@ -639,6 +640,11 @@ export default function App() {
         setSubscription(sub);
         subscriptionLoaded.current = true;
       }).catch(() => { subscriptionLoaded.current = true; });
+      } catch (e) {
+        console.warn('[onAuthStateChanged]', e);
+        setAuthChecked(true);
+        setScreen('auth');
+      }
     });
     return () => { unsub(); stopSubs(); clearTimeout(offlineTimer); };
   }, []);
@@ -646,6 +652,17 @@ export default function App() {
   useEffect(() => {
     const handle = ({url}:{url:string}) => {
       const parsed = Linking.parse(url);
+      // Обработка возврата после оплаты ЮКассы
+      if (parsed.path === 'payment-result') {
+        const uid = auth.currentUser?.uid;
+        if (uid) {
+          loadSubscription(uid).then(sub => {
+            setSubscription(sub);
+            subscriptionLoaded.current = true;
+          }).catch(() => {});
+        }
+        return;
+      }
       // Поддерживаем оба формата: ?code=XXX и ?invite=XXX (старый)
       const code = (parsed.queryParams?.code || parsed.queryParams?.invite) as string;
       if (code) setPendInv(code);
@@ -657,8 +674,11 @@ export default function App() {
 
   // FIX 2: подписки вместо одноразовых запросов — данные приходят мгновенно из кеша
   const stopSubs = () => { unsubH.current?.(); unsubH.current=null; unsubL.current?.(); unsubL.current=null; unsubM.current?.(); unsubM.current=null; };
-  const startSubs = (sid:string) => {
+  const startSubs = (sid:string, currentUid?: string) => {
     stopSubs();
+    // currentUid передаётся явно чтобы избежать проблемы с closure — myId может быть
+    // ещё пустым когда startSubs вызывается из onAuthStateChanged (setMyId асинхронный)
+    const uid = currentUid || myId;
 
     unsubH.current = Storage.subscribeHabits(sid, habits => {
       try {
@@ -685,7 +705,7 @@ export default function App() {
           const base = prev ?? {id:sid, habits:[], logs:{}, members:[]};
           // Уведомления партнёра — только если оба участника уже загружены
           if (base.members.length > 1 && partnerNotif) {
-            const partner = base.members.find(m => m.id !== myId);
+            const partner = base.members.find(m => m.id !== uid);
             if (partner) {
               setTimeout(() => {
                 Object.keys(safeNewLogs).forEach(key => {
@@ -1138,7 +1158,7 @@ export default function App() {
           if (!session.onbDone) { setScreen('onboarding'); return; }
           if (session.spaceId) {
             setSpace({ id: session.spaceId, habits: [], logs: {}, members: [] });
-            startSubs(session.spaceId);
+            startSubs(session.spaceId, uid);
           }
           Keyboard.dismiss();
           setScreen('today');

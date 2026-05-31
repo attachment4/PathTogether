@@ -1,0 +1,17 @@
+diff --git a/node_modules/react-native-gesture-handler/lib/commonjs/PlatformConstants.js b/node_modules/react-native-gesture-handler/lib/commonjs/PlatformConstants.js
+index f51caf9..55985cf 100644
+--- a/node_modules/react-native-gesture-handler/lib/commonjs/PlatformConstants.js
++++ b/node_modules/react-native-gesture-handler/lib/commonjs/PlatformConstants.js
+@@ -1,9 +1 @@
+-"use strict";
+-
+-Object.defineProperty(exports, "__esModule", {
+-  value: true
+-});
+-exports.default = void 0;
+-var _reactNative = require("react-native");
+-var _default = exports.default = _reactNative.NativeModules?.PlatformConstants ?? _reactNative.Platform.constants;
+-//# sourceMappingURL=PlatformConstants.js.map
+\ No newline at end of file
++"use strict";Object.defineProperty(exports,"__esModule",{value:true});exports.default=void 0;var r=require("react-native");var d=exports.default=(()=>{try{return r.NativeModules?.PlatformConstants??r.Platform.constants??{};}catch(e){return r.Platform.constants??{};}})();
+\ No newline at end of file

@@ -1,5 +1,5 @@
 import {
-  doc, getDoc, setDoc, deleteDoc, collection, getDocs, writeBatch, onSnapshot,
+  doc, getDoc, setDoc, deleteDoc, collection, getDocs, writeBatch, onSnapshot, deleteField,
   type Unsubscribe,
 } from 'firebase/firestore';
 import { db, auth } from '../firebase';
@@ -29,7 +29,7 @@ const LS = {
 // ── Firestore: профиль юзера — переживает переустановку ─────────────────────
 // Документ users/{uid} содержит { onboarding: true, spaceId: "..." }
 // Восстанавливается автоматически при повторном входе в аккаунт.
-interface UserProfile { onboarding?: boolean; spaceId?: string; }
+interface UserProfile { onboarding?: boolean; spaceId?: string; lang?: string; }
 
 const FS = {
   async getProfile(uid: string): Promise<UserProfile | null> {
@@ -56,7 +56,11 @@ export const Storage = {
   async loadTheme():       Promise<'dark'|'light'|null> { return LS.get('theme'); },
   async saveTheme(t:string)                             { await LS.set('theme', t); },
   async loadLanguage():    Promise<string|null>         { return LS.get('lang'); },
-  async saveLanguage(l:string)                          { await LS.set('lang', l); },
+  async saveLanguage(l:string) {
+    await LS.set('lang', l);
+    const uid = auth.currentUser?.uid;
+    if (uid) await FS.setProfile(uid, { lang: l }).catch(() => {});
+  },
   async saveNotifTimeMorning(t:string)                  { await LS.set('notif_morning', t); },
   async saveNotifTimeEvening(t:string)                  { await LS.set('notif_evening', t); },
   async loadNotifTimeMorning():Promise<string>           { return (await LS.get<string>('notif_morning')) || '12:00'; },
@@ -77,11 +81,24 @@ export const Storage = {
     }
     return false;
   },
+  // ── Заметки к привычкам: AsyncStorage (кеш) + Firestore (backup) ────────
   async getNote(uid: string, habitId: string, date: string): Promise<string> {
-    try { const v = await AsyncStorage.getItem(`pt_note_${habitId}_${date}_${uid}`); return v || ''; } catch { return ''; }
+    try {
+      const local = await AsyncStorage.getItem(`pt_note_${habitId}_${date}_${uid}`);
+      if (local !== null) return local;
+      // Fallback: Firestore (после переустановки)
+      const snap = await getDoc(doc(db, 'users', uid, 'notes', `${habitId}_${date}`));
+      const value = snap.exists() ? (snap.data().text || '') : '';
+      if (value) await AsyncStorage.setItem(`pt_note_${habitId}_${date}_${uid}`, value);
+      return value;
+    } catch { return ''; }
   },
   async setNote(uid: string, habitId: string, date: string, note: string): Promise<void> {
-    try { await AsyncStorage.setItem(`pt_note_${habitId}_${date}_${uid}`, note); } catch {}
+    try {
+      await AsyncStorage.setItem(`pt_note_${habitId}_${date}_${uid}`, note);
+      // Сохраняем в Firestore — переживёт переустановку
+      await setDoc(doc(db, 'users', uid, 'notes', `${habitId}_${date}`), { text: note, updatedAt: Date.now() });
+    } catch {}
   },
   async getNotesForHabit(uid: string, habitId: string, dates: string[]): Promise<Record<string, string>> {
     try {
@@ -91,11 +108,24 @@ export const Storage = {
       return Object.fromEntries(results.filter(r => r.note).map(r => [r.date, r.note]));
     } catch { return {}; }
   },
+
+  // ── Настроение: AsyncStorage (кеш) + Firestore (backup) ─────────────────
   async getMood(uid: string, date: string): Promise<MoodEntry|null> {
-    try { const v = await AsyncStorage.getItem(`pt_mood_${uid}_${date}`); return v ? JSON.parse(v) : null; } catch { return null; }
+    try {
+      const local = await AsyncStorage.getItem(`pt_mood_${uid}_${date}`);
+      if (local !== null) return JSON.parse(local);
+      // Fallback: Firestore (после переустановки)
+      const snap = await getDoc(doc(db, 'users', uid, 'mood', date));
+      if (!snap.exists()) return null;
+      const entry = snap.data() as MoodEntry;
+      await AsyncStorage.setItem(`pt_mood_${uid}_${date}`, JSON.stringify(entry));
+      return entry;
+    } catch { return null; }
   },
   async setMood(entry: MoodEntry): Promise<void> {
     await AsyncStorage.setItem(`pt_mood_${entry.uid}_${entry.date}`, JSON.stringify(entry));
+    // Сохраняем в Firestore — переживёт переустановку
+    await setDoc(doc(db, 'users', entry.uid, 'mood', entry.date), entry).catch(() => {});
   },
   async getMoodRange(uid: string, dates: string[]): Promise<MoodEntry[]> {
     try {
@@ -142,7 +172,7 @@ export const Storage = {
     const id = uid || auth.currentUser?.uid;
     if (id) {
       await LS.set(`space_id_${id}`, null);
-      await FS.setProfile(id, { spaceId: null }).catch(() => {});
+      await FS.setProfile(id, { spaceId: deleteField() as any }).catch(() => {});
     }
     // Также чистим устаревший глобальный ключ (legacy migration)
     await LS.set('space_id', null);

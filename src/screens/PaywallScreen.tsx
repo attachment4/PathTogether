@@ -6,7 +6,7 @@ import {
 import Svg, { Path, Circle, Rect } from 'react-native-svg';
 import { Theme } from '../theme';
 import { tr } from '../i18n';
-import { Subscription, PLAN_LIMITS, activatePlan, cancelPlan, getDaysLeft } from '../subscription';
+import { Subscription, PLAN_LIMITS, loadSubscription, cancelPlan, getDaysLeft } from '../subscription';
 import { purchasePlan, restorePurchases } from '../purchases';
 
 // Локализация
@@ -388,7 +388,8 @@ export default function PaywallScreen({
           onPress={async () => {
             const result = await restorePurchases(lang, myId);
             if (result && result.plan !== 'free') {
-              const sub = await activatePlan(myId, result.plan as any);
+              // Перечитываем подписку из Firestore — активация уже произошла на сервере через вебхук
+              const sub = await loadSubscription(myId);
               onPlanChange(sub);
             }
           }}

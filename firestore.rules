@@ -41,6 +41,14 @@ service cloud.firestore {
 
     match /users/{uid} {
       allow read, write: if isAuthed() && request.auth.uid == uid;
+
+      match /notes/{noteId} {
+        allow read, write: if isAuthed() && request.auth.uid == uid;
+      }
+
+      match /mood/{date} {
+        allow read, write: if isAuthed() && request.auth.uid == uid;
+      }
     }
 
     match /spaces/{spaceId} {
@@ -97,8 +105,8 @@ service cloud.firestore {
     }
 
     match /config/early_birds {
-      allow read:   if isAuthed();
-      allow write:  if isAuthed();
+      allow read:  if isAuthed();
+      allow write: if false;
     }
 
     match /subscriptions/{uid} {

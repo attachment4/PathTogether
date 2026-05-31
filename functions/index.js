@@ -5,22 +5,32 @@ admin.initializeApp();
 const db = admin.firestore();
 const messaging = admin.messaging();
 
+// ── Локализация уведомлений ───────────────────────────────────────────────────
+function getNotificationBody(fromName, habitName, lang) {
+  if (lang === 'en') return `${fromName || 'Partner'} completed: ${habitName}`;
+  if (lang === 'uk') return `${fromName || 'Партнер'} виконав: ${habitName}`;
+  if (lang === 'be') return `${fromName || 'Партнёр'} выканаў: ${habitName}`;
+  if (lang === 'kk') return `${fromName || 'Серіктес'} орындады: ${habitName}`;
+  return `${fromName || 'Партнёр'} выполнил: ${habitName}`;
+}
+
 // ── Отправить push партнёру (callable) ───────────────────────────────────────
 exports.notifyPartner = functions.region('europe-west1').https.onCall(async (data) => {
-  const { fromName, toUid, habitName } = data;
+  const { fromName, toUid, habitName, lang } = data;
   if (!toUid || !habitName) {
     throw new functions.https.HttpsError('invalid-argument', 'Missing required fields');
   }
   try {
     const tokenDoc = await db.collection('users').doc(toUid).get();
     const token = tokenDoc.data()?.fcmToken;
+    const recipientLang = tokenDoc.data()?.lang || lang || 'ru';
     if (!token) return { success: false, reason: 'no_token' };
 
     await messaging.send({
       token,
       notification: {
         title: fromName || 'PathTogether',
-        body: `выполнил${fromName ? '' : 'и'}: ${habitName}`,
+        body: getNotificationBody(fromName, habitName, recipientLang),
       },
       data: { type: 'habit_done', habitName },
       android: {
@@ -51,11 +61,12 @@ exports.onNotificationCreated = functions
         return null;
       }
 
+      const recipientLang = (await db.collection('users').doc(data.toUid).get()).data()?.lang || 'ru';
       await messaging.send({
         token,
         notification: {
           title: data.fromName || 'PathTogether',
-          body: `${data.fromName} выполнил: ${data.habitName}`,
+          body: getNotificationBody(data.fromName, data.habitName, recipientLang),
         },
         data: { type: 'habit_done', habitName: data.habitName },
         android: {

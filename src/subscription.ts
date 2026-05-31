@@ -139,25 +139,20 @@ export async function loadSubscription(uid: string): Promise<Subscription> {
     return sub;
   }
 
-  // 2. Загружаем сохранённую подписку из Firestore
+  // 2. Загружаем сохранённую подписку из Firestore (один запрос)
   let cloudSub: Partial<Subscription> = {};
   try {
     const snap = await getDoc(doc(db, 'users', uid));
     if (snap.exists()) {
       const d = snap.data();
-      if (d.plan) cloudSub = {
-        plan: d.plan, expiresAt: d.planExpiresAt || null,
-        purchasedAt: d.planPurchasedAt || null,
-      };
-    }
-  } catch {}
-
-  // 3. Проверяем trial (новый юзер без платного плана)
-  if (!cloudSub.plan) {
-    try {
-      const userSnap = await getDoc(doc(db, 'users', uid));
-      if (userSnap.exists()) {
-        const registeredAt: number | undefined = userSnap.data()?.registeredAt;
+      if (d.plan) {
+        cloudSub = {
+          plan: d.plan, expiresAt: d.planExpiresAt || null,
+          purchasedAt: d.planPurchasedAt || null,
+        };
+      } else {
+        // 3. Проверяем trial (новый юзер без платного плана)
+        const registeredAt: number | undefined = d.registeredAt;
         if (registeredAt && Date.now() - registeredAt < TRIAL_DAYS * 24 * 60 * 60 * 1000) {
           cloudSub = {
             plan: 'trial',
@@ -166,8 +161,8 @@ export async function loadSubscription(uid: string): Promise<Subscription> {
           };
         }
       }
-    } catch {}
-  }
+    }
+  } catch {}
 
   // 4. Проверяем early bird (новый юзер)
   const isEarlyBird = await checkIsEarlyBird(uid);
