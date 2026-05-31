@@ -1881,7 +1881,7 @@ export default function App() {
           {members.map(m=>(
             <View key={m.id} style={{flexDirection:'row',alignItems:'center',gap:8,marginBottom:10}}>
               <View style={{width:26,height:26,borderRadius:13,backgroundColor:tk.bg2,borderWidth:1,borderColor:tk.border,alignItems:'center',justifyContent:'center'}}>
-                <Text style={{fontSize:10,fontWeight:'700',color:m.id===myId?tk.text:tk.text3}}>{m.name[0]?.toUpperCase()}</Text>
+                <Text style={{fontSize:10,fontWeight:'700',color:m.id===myId?tk.text:tk.text3}}>{(m.name||'')[0]?.toUpperCase()}</Text>
               </View>
               <View style={{flexDirection:'row',gap:4,flex:1}}>
                 {l7.map(d=>{
@@ -1893,7 +1893,7 @@ export default function App() {
                 })}
               </View>
               <Text style={{fontSize:10,color:tk.text3,width:28,textAlign:'right'}}>
-                {m.id===myId?(isEn?'me':'Я'):m.name.slice(0,4)}
+                {m.id===myId?(isEn?'me':'Я'):(m.name||'').slice(0,4)}
               </Text>
             </View>
           ))}

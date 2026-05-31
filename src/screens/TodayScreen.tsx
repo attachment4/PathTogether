@@ -1026,7 +1026,7 @@ export default function TodayScreen({
         ) : (
           <DraggableList
             habits={searchQ
-              ? todayH.filter(h => h.name.toLowerCase().includes(searchQ.toLowerCase()))
+              ? todayH.filter(h => (h.name||'').toLowerCase().includes(searchQ.toLowerCase()))
               : todayH
             }
             lang={lang}

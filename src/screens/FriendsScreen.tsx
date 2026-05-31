@@ -59,7 +59,7 @@ export default function FriendsScreen({ myId, myName, lang, tk, habits, members,
               return (
                 <View key={m.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 }}>
                   <View style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: isMe ? tk.bg3 : tk.bg2, borderWidth: 1, borderColor: tk.border, alignItems: 'center', justifyContent: 'center' }}>
-                    <Text style={{ fontSize: 11, fontWeight: '700', color: isMe ? tk.text : tk.text3 }}>{m.name[0]?.toUpperCase()}</Text>
+                    <Text style={{ fontSize: 11, fontWeight: '700', color: isMe ? tk.text : tk.text3 }}>{(m.name||'')[0]?.toUpperCase()}</Text>
                   </View>
                   <View style={{ flex: 1 }}>
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 5 }}>
@@ -85,7 +85,7 @@ export default function FriendsScreen({ myId, myName, lang, tk, habits, members,
             shadowRadius: tk.cardShadowRadius, shadowOffset: { width: 0, height: 3 }, elevation: 0, marginBottom: 12 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 14 }}>
               <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: tk.bg3, alignItems: 'center', justifyContent: 'center' }}>
-                <Text style={{ fontSize: 15, fontWeight: '700', color: tk.text2 }}>{partner.name[0]?.toUpperCase()}</Text>
+                <Text style={{ fontSize: 15, fontWeight: '700', color: tk.text2 }}>{(partner.name||'')[0]?.toUpperCase()}</Text>
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={{ fontSize: 13, fontWeight: '600', color: tk.text }}>{partner.name}</Text>
@@ -134,7 +134,7 @@ export default function FriendsScreen({ myId, myName, lang, tk, habits, members,
                     backgroundColor: h.color && h.color !== '#f5f5f5' ? h.color : tk.bg3,
                     alignItems: 'center', justifyContent: 'center' }}>
                     <Text style={{ fontSize: 13, fontWeight: '700', color: tk.bg }}>
-                      {h.name[0]?.toUpperCase()}
+                      {(h.name||'')[0]?.toUpperCase()}
                     </Text>
                   </View>
                   <View style={{ flex: 1 }}>
