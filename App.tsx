@@ -2053,16 +2053,20 @@ export default function App() {
         onJoinByCode={(code)=>doJoin(code)}
         onLeaveSpace={async()=>{
           if(!space?.id||!myId) return;
-          // Убираем себя из members
           const newMembers=members.filter(m=>m&&m.id!==myId);
           await Storage.setMembers(space.id,newMembers);
           stopSubs();
-          // Удаляем spaceId из AsyncStorage И Firestore — иначе при перезапуске вернётся
           await Storage.set(`space_id_${myId}`,null);
           await Storage.clearSpaceId(myId);
           setSpace(null);
           setScreen('today');
           toast$(isEn?'Left the shared space':'Вышли из общего пространства');
+        }}
+        onKickMember={async(memberId)=>{
+          if(!space?.id) return;
+          const newMembers=members.filter(m=>m&&m.id!==memberId);
+          await Storage.setMembers(space.id,newMembers);
+          toast$(isEn?'Partner removed':'Партнёр удалён');
         }}/>
     );
     if (screen==='calendar') return (

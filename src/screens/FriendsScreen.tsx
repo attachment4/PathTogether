@@ -19,10 +19,11 @@ interface Props {
   onCopyLink: () => void;
   onInviteScreen: () => void;
   onLeaveSpace?: () => void;
+  onKickMember?: (memberId: string) => void;
   onJoinByCode?: (code: string) => void;
 }
 
-export default function FriendsScreen({ myId, myName, lang, tk, habits, members, logs, subscription, onOpenPaywall, invLink, onCreateLink, onCopyLink, onInviteScreen, onLeaveSpace, onJoinByCode }: Props) {
+export default function FriendsScreen({ myId, myName, lang, tk, habits, members, logs, subscription, onOpenPaywall, invLink, onCreateLink, onCopyLink, onInviteScreen, onLeaveSpace, onKickMember, onJoinByCode }: Props) {
   const isEn = lang === 'en';
   const L = (ru: string, en: string, uk?: string, be?: string, kk?: string) =>
     lang==='en' ? en : lang==='uk' ? (uk||ru) : lang==='be' ? (be||ru) : lang==='kk' ? (kk||ru) : ru;
@@ -166,23 +167,44 @@ export default function FriendsScreen({ myId, myName, lang, tk, habits, members,
           </View>
         )}
 
-        {/* Leave space button — only if has partner */}
-        {partner && onLeaveSpace && (
-          <TouchableOpacity
-            onPress={() => Alert.alert(
-              (lang === 'en' ? 'Leave shared space?' : 'Выйти из общего пространства?'),
-              (lang === 'en' ? 'You will lose access to shared habits' : 'Вы потеряете доступ к общим привычкам'),
-              [
-                { text: (lang === 'en' ? 'Cancel' : 'Отмена'), style: 'cancel' },
-                { text: (lang === 'en' ? 'Leave' : 'Выйти'), style: 'destructive', onPress: onLeaveSpace },
-              ]
+        {/* Leave / kick buttons */}
+        {partner && (onLeaveSpace || onKickMember) && (
+          <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12 }}>
+            {onLeaveSpace && (
+              <TouchableOpacity
+                onPress={() => Alert.alert(
+                  lang === 'en' ? 'Leave shared space?' : 'Выйти из пространства?',
+                  lang === 'en' ? 'You will lose access to shared habits.' : 'Вы потеряете доступ к общим привычкам.',
+                  [
+                    { text: lang === 'en' ? 'Cancel' : 'Отмена', style: 'cancel' },
+                    { text: lang === 'en' ? 'Leave' : 'Выйти', style: 'destructive', onPress: onLeaveSpace },
+                  ]
+                )}
+                style={{ flex: 1, backgroundColor: tk.bg2, borderWidth: 1, borderColor: tk.border,
+                  borderRadius: 14, padding: 13, alignItems: 'center' }}>
+                <Text style={{ fontSize: 13, fontWeight: '600', color: tk.text3 }}>
+                  {lang === 'en' ? 'Leave space' : 'Выйти'}
+                </Text>
+              </TouchableOpacity>
             )}
-            style={{ backgroundColor: tk.bg2, borderWidth: 1, borderColor: tk.border,
-              borderRadius: 14, padding: 14, alignItems: 'center', marginBottom: 12 }}>
-            <Text style={{ fontSize: 13, fontWeight: '600', color: tk.text3 }}>
-              {(lang === 'en' ? 'Leave shared space' : 'Выйти из общего пространства')}
-            </Text>
-          </TouchableOpacity>
+            {onKickMember && (
+              <TouchableOpacity
+                onPress={() => Alert.alert(
+                  lang === 'en' ? `Remove ${partner.name}?` : `Убрать ${partner.name}?`,
+                  lang === 'en' ? 'They will lose access to the shared space.' : 'Партнёр потеряет доступ к общему пространству.',
+                  [
+                    { text: lang === 'en' ? 'Cancel' : 'Отмена', style: 'cancel' },
+                    { text: lang === 'en' ? 'Remove' : 'Убрать', style: 'destructive', onPress: () => onKickMember(partner.id) },
+                  ]
+                )}
+                style={{ flex: 1, backgroundColor: tk.bg2, borderWidth: 1, borderColor: '#e05555',
+                  borderRadius: 14, padding: 13, alignItems: 'center' }}>
+                <Text style={{ fontSize: 13, fontWeight: '600', color: '#e05555' }}>
+                  {lang === 'en' ? 'Remove partner' : 'Убрать партнёра'}
+                </Text>
+              </TouchableOpacity>
+            )}
+          </View>
         )}
 
         {/* Invite block */}
