@@ -846,7 +846,7 @@ export default function App() {
     // Оптимистичное обновление — сразу обновляем UI без ожидания Firestore
     setSpace(prev => prev ? { ...prev, logs: l } : prev);
     // Кэш для офлайн режима
-    AsyncStorage.setItem('pt_offline_logs_' + (space?.id||''), JSON.stringify(l)).catch(()=>{});
+    Storage.set('offline_logs_' + (space?.id||''), l).catch(()=>{});
     try {
       saveL(l).catch(e => console.warn('[toggle saveL]', e)); // fire and forget
       // Обновляем badge и серию
