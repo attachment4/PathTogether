@@ -411,7 +411,7 @@ export default function App() {
   // Ждём загрузки subscription — иначе canInvite() вернёт false для платного юзера
   useEffect(() => {
     if (screen === 'invite' && !invLink && myId && myId !== 'guest' && subscriptionLoaded.current) {
-      genInvite().catch(() => {});
+      genInvite(true).catch(() => {});
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [screen, invLink, subscription.plan]);
@@ -448,6 +448,7 @@ export default function App() {
   const [authChecked, setAuthChecked] = useState(false);
   const [lang,        setLang]        = useState('ru');
   const [invLink,     setInvLink]     = useState('');
+  const prevInviteScreen = useRef<Screen>('friends');
   const [detailH,     setDetailH]     = useState<Habit|null>(null);
   const [editH,       setEditH]       = useState<Habit|null>(null);
   const [showTimePicker, setShowTimePicker] = useState(false);
@@ -883,10 +884,10 @@ export default function App() {
     setDetailH(null);animateScreenChange('today');
   };
 
-  const genInvite = async () => {
+  const genInvite = async (silent = false) => {
     // Гостям нужна регистрация для приглашений
     if (isGuest()) {
-      Alert.alert(
+      if (!silent) Alert.alert(
         lang === 'en' ? 'Create an account' : 'Создайте аккаунт',
         lang === 'en'
           ? 'To invite a partner you need to register. It only takes a minute!'
@@ -900,7 +901,7 @@ export default function App() {
     }
     // Проверяем подписку перед созданием инвайта
     if (!canInvite(subscription)) {
-      setScreen('paywall');
+      if (!silent) setScreen('paywall');
       return '';
     }
     // Проверяем лимит: уже достигнут максимум участников
@@ -920,10 +921,16 @@ export default function App() {
     try {
       const s=await ensureSpace();
       const code=await secureCode();
-      await Storage.setInvite(code,{spaceId:s.id,spaceName:'PathTogether',creatorId:myId});
-      // Deep link: pathtogether://invite?code=XXX — открывает приложение напрямую
-      // Для QR-кода используем универсальную ссылку с fallback страницей
-      const link=`pathtogether://invite?code=${code}`;
+      // Лимит участников хоста сохраняем прямо в инвайт: присоединяющийся
+      // не может прочитать users/{host} (запрещено правилами Firestore),
+      // поэтому лимит должен быть доступен из самого документа инвайта.
+      const hostMax = PLAN_LIMITS[subscription.plan]?.maxMembers ?? 1;
+      await Storage.setInvite(code,{spaceId:s.id,spaceName:'PathTogether',creatorId:myId,hostPlan:subscription.plan,hostMax});
+      // QR и ссылка должны открываться ЛЮБОЙ камерой → universal https-ссылка,
+      // которая редиректит в приложение (или в стор). Кастомную схему
+      // pathtogether:// большинство камер игнорируют, поэтому QR раньше "не сканировался".
+      // Хост attachment4.github.io/PathTogether/invite.html уже зарегистрирован в intentFilters.
+      const link=`https://attachment4.github.io/PathTogether/invite.html?code=${code}`;
       setInvLink(link); return link;
     } catch {
       toast$(isEn?'Could not create invite':'Не удалось создать инвайт',false);
@@ -949,25 +956,18 @@ export default function App() {
       if (space?.id === inv.spaceId) { toast$(isEn ? 'Already here' : 'Уже здесь', false); return; }
 
       const membersRef = doc(db, 'spaces', inv.spaceId, 'data', 'members');
-      const hostRef    = doc(db, 'users', inv.creatorId);
+
+      // Лимит участников хоста берём из САМОГО инвайта.
+      // Правила Firestore не позволяют присоединяющемуся читать users/{host}
+      // (можно читать только свой профиль), поэтому раньше транзакция падала
+      // с permission-denied и присоединиться было невозможно.
+      // Для старых инвайтов без поля hostMax используем большой дефолт,
+      // чтобы не блокировать вход (инвайт всё равно мог создать только платный хост).
+      const hostMax = typeof (inv as any).hostMax === 'number' ? (inv as any).hostMax : 99;
 
       await runTransaction(db, async tx => {
-        // Читаем оба документа ВНУТРИ транзакции — атомарно, без race condition
-        const [membSnap, hostSnap] = await Promise.all([
-          tx.get(membersRef),
-          tx.get(hostRef),
-        ]);
-
-        // Определяем лимит хоста с проверкой срока действия плана
-        const hostData = hostSnap.exists() ? hostSnap.data() : null;
-        let hostPlan: 'free'|'duo'|'team'|'admin' = hostData?.plan || 'free';
-        if (hostPlan !== 'free' && hostPlan !== 'admin' && hostData?.planExpiresAt) {
-          const expires = typeof hostData.planExpiresAt === 'number'
-            ? hostData.planExpiresAt
-            : new Date(hostData.planExpiresAt).getTime();
-          if (expires < Date.now()) hostPlan = 'free';
-        }
-        const hostMax = PLAN_LIMITS[hostPlan]?.maxMembers ?? 1;
+        // Читаем только members — атомарно, без race condition
+        const membSnap = await tx.get(membersRef);
 
         const cur: Member[] = membSnap.exists() ? (membSnap.data().v || []) : [];
         if (cur.find(m => m.id === myId)) return; // уже участник
@@ -990,8 +990,7 @@ export default function App() {
       await Storage.saveCurrentSpace(inv.spaceId, myId);
       startSubs(inv.spaceId);
       setPendInv(null);
-      // Удаляем инвайт после использования
-      try { await deleteDoc(doc(db, 'invites', code)); } catch {}
+      // Инвайт НЕ удаляем — он действует 7 дней, чтобы QR можно было давать нескольким людям
       toast$(isEn ? 'Joined! ' : 'Присоединились! ');
     } catch (e: any) {
       if (e?.message === 'LIMIT_REACHED') {
@@ -1638,7 +1637,7 @@ export default function App() {
     <View style={{flex:1,paddingTop:TOP,backgroundColor:tk.bg}}>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{padding:20,paddingBottom:60}}>
         <View style={{flexDirection:'row',alignItems:'center',gap:12,marginBottom:28}}>
-          <TouchableOpacity onPress={()=>setScreen('add')}
+          <TouchableOpacity onPress={()=>setScreen(prevInviteScreen.current)}
             hitSlop={{top:14,bottom:14,left:20,right:20}}
             style={{padding:4}}>
             <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
@@ -1679,23 +1678,31 @@ export default function App() {
           )}
         </View>
 
-        <TouchableOpacity onPress={async()=>{
-          const l=await genInvite(); if(!l) return;
-          try {
-            const msgRu = `Привет! Давай вместе отслеживать привычки в PathTogether\n\nПросто открой ссылку:\n${l}`;
-            const msgEn = `Hey! Let's track habits together in PathTogether\n\nOpen the link:\n${l}`;
-            await Share.share({message: isEn ? msgEn : msgRu});
-          }
-          catch { await Clipboard.setStringAsync(l); toast$(isEn?'Link copied ':'Ссылка скопирована '); }
-        }} style={{backgroundColor:tk.text,borderRadius:14,padding:14,alignItems:'center',
-                shadowColor: tk.glowColor,
-                shadowOpacity: tk.glowOpacity,
-                shadowRadius: tk.glowRadius,
-                shadowOffset: { width: 0, height: 0 },
-                elevation: 0,
-              }}>
-          <Text style={{color:tk.bg,fontSize:14,fontWeight:'500'}}>{isEn?'Share':'Поделиться'}</Text>
-        </TouchableOpacity>
+        <View style={{flexDirection:'row',gap:10}}>
+          <TouchableOpacity onPress={async()=>{
+            if(!invLink) return;
+            try {
+              const msgRu = `Привет! Давай вместе отслеживать привычки в PathTogether\n\nПросто открой ссылку:\n${invLink}`;
+              const msgEn = `Hey! Let's track habits together in PathTogether\n\nOpen the link:\n${invLink}`;
+              await Share.share({message: isEn ? msgEn : msgRu});
+            }
+            catch { await Clipboard.setStringAsync(invLink); toast$(isEn?'Link copied ':'Ссылка скопирована '); }
+          }} style={{flex:3,backgroundColor:tk.text,borderRadius:14,padding:14,alignItems:'center',
+                  shadowColor: tk.glowColor,
+                  shadowOpacity: tk.glowOpacity,
+                  shadowRadius: tk.glowRadius,
+                  shadowOffset: { width: 0, height: 0 },
+                  elevation: 0,
+                  opacity: invLink ? 1 : 0.4,
+                }}>
+            <Text style={{color:tk.bg,fontSize:14,fontWeight:'500'}}>{isEn?'Share':'Поделиться'}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={async()=>{ await genInvite(); }}
+            style={{flex:2,backgroundColor:tk.bg2,borderRadius:14,padding:14,alignItems:'center',
+              borderWidth:1,borderColor:tk.border}}>
+            <Text style={{color:tk.text2,fontSize:13,fontWeight:'500'}}>{isEn?'New QR':'Новый QR'}</Text>
+          </TouchableOpacity>
+        </View>
       </ScrollView>
       {toast&&<Toast msg={toast.msg} ok={toast.ok} tk={tk}/>}
     </View>
@@ -1929,7 +1936,7 @@ export default function App() {
           <Text style={{fontSize:15,fontWeight:'700',color:tk.text}}>{isEn?'New habit':'Новая привычка'}</Text>
           <Text style={{fontSize:12,color:tk.text3,textAlign:'center'}}>{isEn?'Track your daily goals':'Отслеживай ежедневные цели'}</Text>
         </TouchableOpacity>
-        <TouchableOpacity onPress={()=>setScreen('invite')}
+        <TouchableOpacity onPress={()=>{prevInviteScreen.current='add';setScreen('invite');}}
           style={{backgroundColor:tk.bg2,borderWidth:1,borderColor:tk.border,borderRadius:16,padding:22,alignItems:'center',gap:10}}>
           <View style={{width:56,height:56,borderRadius:28,
             backgroundColor:tk.bg3,
@@ -1955,7 +1962,8 @@ export default function App() {
         subscription={subscription} onOpenPaywall={()=>setScreen('paywall')}
         invLink={invLink} onCreateLink={genInvite}
         onCopyLink={async()=>{await Clipboard.setStringAsync(invLink);toast$(isEn?'Copied ':'Скопировано ');}}
-        onInviteScreen={()=>setScreen('invite')}
+        onInviteScreen={()=>{prevInviteScreen.current='friends';setScreen('invite');}}
+        onJoinByCode={(code)=>doJoin(code)}
         onLeaveSpace={async()=>{
           if(!space?.id||!myId) return;
           // Убираем себя из members

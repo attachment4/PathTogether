@@ -10,7 +10,7 @@ export type HabitCategory = 'health' | 'sport' | 'mind' | 'work' | 'social' | 'h
 export interface Habit  { id:string; name:string; icon:string; color:string; days:number[]; time:string; desc?:string; ownerId:string; ownerName:string; createdAt:string; order?:number; target?:number; unit?:string; category?:HabitCategory; type?:'good'|'quit'; timerSeconds?:number; archived?:boolean; routine?:'morning'|'afternoon'|'evening'; noteEnabled?:boolean; }
 export interface MoodEntry { date: string; mood: 1|2|3|4|5; note?: string; uid: string; }
 
-export interface InviteData { spaceId:string; spaceName:string; creatorId:string; type?:'normal'|'love'; }
+export interface InviteData { spaceId:string; spaceName:string; creatorId:string; type?:'normal'|'love'; hostPlan?:string; hostMax?:number; }
 
 const TAG = '[Storage]';
 

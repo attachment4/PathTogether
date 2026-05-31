@@ -238,7 +238,6 @@
 </div>
 
 <script>
-  // Получаем код из URL
   const params = new URLSearchParams(window.location.search);
   const code = params.get('code') || params.get('invite');
 
@@ -247,31 +246,6 @@
     document.getElementById('code-text').textContent = code;
   }
 
-  function openApp() {
-    if (!code) {
-      setStatus('Код приглашения не найден');
-      return;
-    }
-
-    // Deep link — открывает приложение напрямую
-    const deepLink = `pathtogether://invite?code=${code}`;
-
-    // Пытаемся открыть приложение
-    setStatus('Открываем приложение...');
-    window.location.href = deepLink;
-
-    // Через 2 секунды если не открылось — показываем кнопки скачивания
-    setTimeout(() => {
-      document.getElementById('store-section').style.display = 'block';
-      setStatus('Приложение не установлено?');
-    }, 2000);
-  }
-
-  function setStatus(msg) {
-    document.getElementById('status').textContent = msg;
-  }
-
-  // Определяем платформу для кнопок
   const ua = navigator.userAgent.toLowerCase();
   const isIOS = /iphone|ipad|ipod/.test(ua);
   const isAndroid = /android/.test(ua);
@@ -282,9 +256,39 @@
     document.getElementById('ios-btn').style.display = 'none';
   }
 
-  // Авто-попытка открыть если есть код
-  if (code) {
-    setTimeout(openApp, 500);
+  function setStatus(msg) {
+    document.getElementById('status').textContent = msg;
+  }
+
+  function openApp() {
+    if (!code) { setStatus('Код приглашения не найден'); return; }
+
+    const customScheme = `pathtogether://invite?code=${encodeURIComponent(code)}`;
+
+    setStatus('Открываем приложение...');
+
+    if (isAndroid) {
+      // Android: сначала Intent URI — открывает приложение напрямую или Play Store
+      const intentUri = `intent://invite?code=${encodeURIComponent(code)}#Intent;scheme=pathtogether;package=com.attach4.pathtogether;S.browser_fallback_url=https%3A%2F%2Fplay.google.com%2Fstore%2Fapps%2Fdetails%3Fid%3Dcom.attach4.pathtogether;end`;
+      window.location.href = intentUri;
+    } else {
+      // iOS и остальные: custom scheme
+      window.location.href = customScheme;
+      // Если через 2.5 сек ничего не произошло — показываем кнопки скачивания
+      setTimeout(() => {
+        document.getElementById('store-section').style.display = 'block';
+        setStatus('Приложение не установлено?');
+      }, 2500);
+    }
+  }
+
+  // Вешаем обработчик на кнопку
+  document.getElementById('open-app-btn').addEventListener('click', openApp);
+
+  // Авто-открытие только на Android (надёжно без жеста)
+  // На iOS НЕ делаем авто-редирект — Safari блокирует custom scheme без жеста пользователя
+  if (code && isAndroid) {
+    setTimeout(openApp, 600);
   }
 </script>
 </body>

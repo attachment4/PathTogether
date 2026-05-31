@@ -57,7 +57,12 @@ service cloud.firestore {
       }
 
       match /data/{document} {
-        allow read: if isMember(spaceId);
+        // members читается любым авторизованным пользователем — это нужно для doJoin:
+        // присоединяющийся ещё НЕ в списке участников, но должен прочитать текущий
+        // состав, чтобы добавить себя. spaceId — случайный id, узнать его можно только
+        // через секретный код инвайта, поэтому утечки данных нет.
+        // logs и meta остаются доступны только участникам пространства.
+        allow read: if isAuthed() && (document == 'members' || isMember(spaceId));
         allow write: if isAuthed() && (
           document == 'members'
             // Создание первого члена (ensureSpace), обновление owner'ом, или join (добавление себя)
