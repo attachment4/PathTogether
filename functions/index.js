@@ -107,8 +107,11 @@ exports.cleanupNotifications = functions
 // ══════════════════════════════════════════════════════════════════════════════
 const axios = require('axios');
 
-const YOOKASSA_SHOP_ID  = '1369225';
-const YOOKASSA_SECRET   = '***REMOVED_YOOKASSA_SECRET***';
+// ВАЖНО: задайте секрет через переменные окружения Firebase Functions:
+//   firebase functions:config:set yookassa.shop_id="1369225" yookassa.secret="live_YOUR_NEW_KEY"
+// Старый ключ live_yN4mAT3qQSU_... НЕОБХОДИМО ОТОЗВАТЬ в личном кабинете ЮКассы!
+const YOOKASSA_SHOP_ID  = (functions.config().yookassa || {}).shop_id  || process.env.YOOKASSA_SHOP_ID  || '';
+const YOOKASSA_SECRET   = (functions.config().yookassa || {}).secret    || process.env.YOOKASSA_SECRET   || '';
 const YOOKASSA_BASE_URL = 'https://api.yookassa.ru/v3';
 
 const PLANS = {
@@ -183,6 +186,23 @@ exports.createPayment = functions.region('europe-west1').https.onCall(async (dat
 // ── Вебхук от ЮКассы ──────────────────────────────────────────────────────────
 exports.yookassaWebhook = functions.region('europe-west1').https.onRequest(async (req, res) => {
   if (req.method !== 'POST') { res.status(405).send('Method Not Allowed'); return; }
+
+  // Верификация подписи ЮКассы
+  // Задайте секрет вебхука: firebase functions:config:set yookassa.webhook_secret="YOUR_WEBHOOK_SECRET"
+  const webhookSecret = (functions.config().yookassa || {}).webhook_secret || process.env.YOOKASSA_WEBHOOK_SECRET;
+  if (webhookSecret) {
+    const crypto = require('crypto');
+    const signature = req.headers['x-yookassa-signature'] || req.headers['x-yoomoney-signature'];
+    if (signature) {
+      const expected = crypto.createHmac('sha256', webhookSecret)
+        .update(JSON.stringify(req.body)).digest('hex');
+      if (signature !== expected) {
+        console.warn('[yookassaWebhook] Invalid signature');
+        res.status(403).send('Forbidden');
+        return;
+      }
+    }
+  }
 
   const event = req.body;
   console.log('[yookassaWebhook] event:', JSON.stringify(event));

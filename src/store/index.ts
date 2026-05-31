@@ -78,81 +78,100 @@ export const Storage = {
     return false;
   },
   async getNote(uid: string, habitId: string, date: string): Promise<string> {
-    try { const v = await AsyncStorage.getItem(`note_${habitId}_${date}_${uid}`); return v || ''; } catch { return ''; }
+    try { const v = await AsyncStorage.getItem(`pt_note_${habitId}_${date}_${uid}`); return v || ''; } catch { return ''; }
   },
   async setNote(uid: string, habitId: string, date: string, note: string): Promise<void> {
-    try { await AsyncStorage.setItem(`note_${habitId}_${date}_${uid}`, note); } catch {}
+    try { await AsyncStorage.setItem(`pt_note_${habitId}_${date}_${uid}`, note); } catch {}
   },
   async getNotesForHabit(uid: string, habitId: string, dates: string[]): Promise<Record<string, string>> {
     try {
       const results = await Promise.all(dates.map(async d => ({
-        date: d, note: await AsyncStorage.getItem(`note_${habitId}_${d}_${uid}`) || ''
+        date: d, note: await AsyncStorage.getItem(`pt_note_${habitId}_${d}_${uid}`) || ''
       })));
       return Object.fromEntries(results.filter(r => r.note).map(r => [r.date, r.note]));
     } catch { return {}; }
   },
   async getMood(uid: string, date: string): Promise<MoodEntry|null> {
-    try { const v = await AsyncStorage.getItem(`mood_${uid}_${date}`); return v ? JSON.parse(v) : null; } catch { return null; }
+    try { const v = await AsyncStorage.getItem(`pt_mood_${uid}_${date}`); return v ? JSON.parse(v) : null; } catch { return null; }
   },
   async setMood(entry: MoodEntry): Promise<void> {
-    await AsyncStorage.setItem(`mood_${entry.uid}_${entry.date}`, JSON.stringify(entry));
+    await AsyncStorage.setItem(`pt_mood_${entry.uid}_${entry.date}`, JSON.stringify(entry));
   },
   async getMoodRange(uid: string, dates: string[]): Promise<MoodEntry[]> {
     try {
-      const results = await Promise.all(dates.map(d => AsyncStorage.getItem(`mood_${uid}_${d}`)));
+      const results = await Promise.all(dates.map(d => AsyncStorage.getItem(`pt_mood_${uid}_${d}`)));
       return results.filter(Boolean).map(v => JSON.parse(v!));
     } catch { return []; }
   },
   async saveOnboarding() {
-    await LS.set('onboarding_done', true);
     const uid = auth.currentUser?.uid;
+    if (uid) await LS.set(`onboarding_${uid}`, true);
+    // legacy key for offline fallback compatibility
+    await LS.set('onboarding_done', true);
     if (uid) await FS.setProfile(uid, { onboarding: true });
   },
 
   // ── spaceId: Firestore + локальный кеш ──────────────────────────────────
   async loadCurrentSpace(uid?: string): Promise<string|null> {
-    // 1. Локальный кеш
-    const local = await LS.get<string>('space_id');
-    if (local) return local;
-    // 2. После переустановки — из Firestore
     const id = uid || auth.currentUser?.uid;
     if (!id) return null;
+    // Ключ всегда per-user — исключает утечку space_id между аккаунтами на одном устройстве
+    const cacheKey = `space_id_${id}`;
+    const local = await LS.get<string>(cacheKey);
+    if (local) return local;
+    // После переустановки — из Firestore (источник истины)
     const profile = await FS.getProfile(id);
     if (profile?.spaceId) {
-      await LS.set('space_id', profile.spaceId); // кешируем
+      await LS.set(cacheKey, profile.spaceId);
       return profile.spaceId;
     }
     return null;
   },
-  async saveCurrentSpace(id: string) {
-    await LS.set('space_id', id);
-    const uid = auth.currentUser?.uid;
-    if (uid) await FS.setProfile(uid, { spaceId: id });
+  async saveCurrentSpace(id: string, explicitUid?: string) {
+    const uid = explicitUid || auth.currentUser?.uid;
+    if (uid) {
+      await LS.set(`space_id_${uid}`, id); // per-user ключ
+      await FS.setProfile(uid, { spaceId: id });
+    } else {
+      console.warn('[Storage] saveCurrentSpace: no uid available, space_id not persisted to Firestore');
+    }
+  },
+
+  /** Полностью очищает привязку к пространству (AsyncStorage + Firestore профиль) */
+  async clearSpaceId(uid?: string) {
+    const id = uid || auth.currentUser?.uid;
+    if (id) {
+      await LS.set(`space_id_${id}`, null);
+      await FS.setProfile(id, { spaceId: null }).catch(() => {});
+    }
+    // Также чистим устаревший глобальный ключ (legacy migration)
+    await LS.set('space_id', null);
   },
 
   // ── Firestore reads ──────────────────────────────────────────────────────
   // ── Комбинированная загрузка сессии (onboarding + spaceId за один вызов) ─
   async loadUserSession(uid: string): Promise<{ onbDone: boolean; spaceId: string | null }> {
+    const cacheKey = `space_id_${uid}`;
+    const onbKey   = `onboarding_${uid}`;
     try {
       // Всегда читаем из Firestore — это источник истины для конкретного uid
-      // AsyncStorage может содержать данные другого аккаунта с этого устройства
       // Таймаут 5 сек — если Firestore недоступен, используем кеш
       const profile = await Promise.race([
         FS.getProfile(uid),
         new Promise<null>((_, rej) => setTimeout(() => rej(new Error('timeout')), 5000)),
       ]).catch(() => null);
-      // Обновляем локальный кеш под этот uid
-      if (profile?.onboarding) await LS.set('onboarding_done', true);
-      else await LS.set('onboarding_done', false);
-      if (profile?.spaceId) await LS.set('space_id', profile.spaceId);
-      else await LS.set('space_id', null);
+      // Обновляем per-user кеш
+      if (profile?.onboarding) await LS.set(onbKey, true);
+      else await LS.set(onbKey, false);
+      if (profile?.spaceId) await LS.set(cacheKey, profile.spaceId);
+      else await LS.set(cacheKey, null);
       return { onbDone: !!profile?.onboarding, spaceId: profile?.spaceId ?? null };
     } catch (e) {
       console.warn('[Storage]', 'loadUserSession', e);
-      // При ошибке сети — пробуем локальный кеш как fallback
+      // При ошибке сети — per-user кеш (НЕ глобальный space_id)
       const [localOnb, localSpace] = await Promise.all([
-        LS.get<boolean>('onboarding_done'),
-        LS.get<string>('space_id'),
+        LS.get<boolean>(onbKey),
+        LS.get<string>(cacheKey),
       ]);
       return { onbDone: !!localOnb, spaceId: localSpace };
     }
@@ -201,14 +220,25 @@ export const Storage = {
   async upsertHabit(sid:string, h:Habit) { await setDoc(doc(db,'spaces',sid,'habits',h.id), h); },
   async deleteHabitDoc(sid:string, hid:string) { await deleteDoc(doc(db,'spaces',sid,'habits',hid)); },
   async setLogs(sid:string, logs:Record<string,boolean>) { await setDoc(doc(db,'spaces',sid,'data','logs'), { v: logs }); },
-  async setMembers(sid:string, members:Member[]) { await setDoc(doc(db,'spaces',sid,'data','members'), { v: members }); },
+  async setMembers(sid:string, members:Member[]) {
+    await setDoc(doc(db,'spaces',sid,'data','members'), {
+      v: members,
+      memberIds: members.map(m => m.id),
+      ownerIds:  members.filter(m => m.role === 'owner').map(m => m.id),
+    });
+  },
   async setMeta(sid:string, meta:{name:string; type?:'normal'|'love'}) { await setDoc(doc(db,'spaces',sid,'data','meta'), meta); },
 
   async setInvite(code:string, data:InviteData) {
     const uid = auth.currentUser?.uid;
     if (!uid) throw new Error('setInvite: not authenticated');
     if (data.creatorId !== uid) throw new Error('setInvite: creatorId must match current user');
-    await setDoc(doc(db,'invites',code), data);
+    await setDoc(doc(db,'invites',code), {
+      ...data,
+      createdAt: Date.now(),
+      // Инвайт действителен 7 дней
+      expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000,
+    });
   },
 
   // ── Firestore subscriptions (realtime) ───────────────────────────────────

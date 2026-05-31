@@ -70,6 +70,28 @@ export default function CalendarScreen({ myId, lang, tk, habits, members, logs, 
   const [selDay, setSelDay] = useState<number | null>(now.getDate());
   const [viewMode, setViewMode] = useState<ViewMode>('month');
   const [editingLog, setEditingLog] = useState(false);
+  // Локальный оптимистичный стейт логов — обновляется мгновенно, до Firestore
+  const [localLogs, setLocalLogs] = useState<Record<string,boolean>>(logs);
+
+  // Синхронизируем localLogs когда приходят новые данные из Firestore
+  React.useEffect(() => { setLocalLogs(logs); }, [logs]);
+
+  const handleToggleLog = async (hid: string, dateStr: string) => {
+    if (!onToggleLog) return;
+    const key = `${hid}_${dateStr}_${myId}`;
+    // Оптимистичное обновление
+    setLocalLogs(prev => {
+      const next = { ...prev };
+      if (next[key]) delete next[key]; else next[key] = true;
+      return next;
+    });
+    try {
+      await onToggleLog(hid, dateStr);
+    } catch {
+      // При ошибке — откатываем
+      setLocalLogs(logs);
+    }
+  };
 
   const partner = members.find(m => m.id !== myId);
 
@@ -87,7 +109,7 @@ export default function CalendarScreen({ myId, lang, tk, habits, members, logs, 
     const dw = (dateObj.getDay() + 6) % 7;
     const dh = habits.filter(h => h.days?.includes(dw) && (!h.createdAt || h.createdAt <= s));
     if (!dh.length) return null;
-    const doneH = dh.filter(h => isLogged(h.id, myId, logs, s));
+    const doneH = dh.filter(h => isLogged(h.id, myId, localLogs, s));
     const done = doneH.length;
     const pct = done / dh.length;
     const colors = doneH.slice(0, 3).map(h => h.color || tk.text);
@@ -119,8 +141,8 @@ export default function CalendarScreen({ myId, lang, tk, habits, members, logs, 
     // Показываем только привычки, созданные ДО выбранного дня (включительно)
     return habits.filter(h => h.days?.includes(dw) && (!h.createdAt || h.createdAt <= s)).map(h => ({
       ...h,
-      myDone: isLogged(h.id, myId, logs, s),
-      partDone: partner ? isLogged(h.id, partner.id, logs, s) : null,
+      myDone: isLogged(h.id, myId, localLogs, s),
+      partDone: partner ? isLogged(h.id, partner.id, localLogs, s) : null,
     }));
   })() : [];
 
@@ -244,7 +266,7 @@ export default function CalendarScreen({ myId, lang, tk, habits, members, logs, 
                 const dw = (d.getDay() + 6) % 7;
                 const isFuture = d > now;
                 const dh = isFuture ? [] : habits.filter(h => h.days?.includes(dw) && (!h.createdAt || h.createdAt <= s));
-                const done = dh.filter(h => isLogged(h.id, myId, logs, s)).length;
+                const done = dh.filter(h => isLogged(h.id, myId, localLogs, s)).length;
                 const pct = dh.length ? done / dh.length : 0;
                 const wdLabels = isEn
                   ? ['Mo','Tu','We','Th','Fr','Sa','Su']
@@ -281,8 +303,8 @@ export default function CalendarScreen({ myId, lang, tk, habits, members, logs, 
               .filter(h => h.days?.includes(dw) && (!h.createdAt || h.createdAt <= s))
               .map(h => ({
                 ...h,
-                myDone: isLogged(h.id, myId, logs, s),
-                partDone: partner ? isLogged(h.id, partner.id, logs, s) : null,
+                myDone: isLogged(h.id, myId, localLogs, s),
+                partDone: partner ? isLogged(h.id, partner.id, localLogs, s) : null,
               }));
             if (!dayHabits.length) return null;
             const monthNames = isEn
@@ -307,7 +329,7 @@ export default function CalendarScreen({ myId, lang, tk, habits, members, logs, 
                 </View>
                 {dayHabits.map(h => (
                   <TouchableOpacity key={h.id}
-                    onPress={() => editingLog && onToggleLog && onToggleLog(h.id, s)}
+                    onPress={() => editingLog && handleToggleLog(h.id, s)}
                     style={{ flexDirection: 'row', alignItems: 'center', gap: 10,
                       padding: 9, backgroundColor: tk.bg3, borderRadius: 10, marginBottom: 6 }}>
                     <View style={{ width: 10, height: 10, borderRadius: 5,
@@ -361,7 +383,7 @@ export default function CalendarScreen({ myId, lang, tk, habits, members, logs, 
             )}
             {selHabits.map(h => (
               <TouchableOpacity key={h.id}
-                onPress={() => editingLog && onToggleLog && onToggleLog(h.id, ds(selDay!))}
+                onPress={() => editingLog && handleToggleLog(h.id, ds(selDay!))}
                 style={{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: 10, backgroundColor: tk.bg3, borderRadius: 10, marginBottom: 6 }}>
                 <View style={{ width: 10, height: 10, borderRadius: 5,
                   backgroundColor: h.color && h.color !== '#f5f5f5' ? h.color : tk.border,

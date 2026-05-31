@@ -7,9 +7,13 @@ import { Habit, Member } from '../store';
 import { isLogged, todayDow } from '../utils';
 
 // Локализация
+import { Subscription, PLAN_LIMITS, canInvite, canAddMember } from '../subscription';
+
 interface Props {
   myId: string; myName: string; lang: string; tk: Theme;
   habits: Habit[]; members: Member[]; logs: Record<string,boolean>;
+  subscription: Subscription;
+  onOpenPaywall: () => void;
   invLink: string;
   onCreateLink: () => void;
   onCopyLink: () => void;
@@ -17,7 +21,7 @@ interface Props {
   onLeaveSpace?: () => void;
 }
 
-export default function FriendsScreen({ myId, myName, lang, tk, habits, members, logs, invLink, onCreateLink, onCopyLink, onInviteScreen, onLeaveSpace }: Props) {
+export default function FriendsScreen({ myId, myName, lang, tk, habits, members, logs, subscription, onOpenPaywall, invLink, onCreateLink, onCopyLink, onInviteScreen, onLeaveSpace }: Props) {
   const isEn = lang === 'en';
   const L = (ru: string, en: string, uk?: string, be?: string, kk?: string) =>
     lang==='en' ? en : lang==='uk' ? (uk||ru) : lang==='be' ? (be||ru) : lang==='kk' ? (kk||ru) : ru;

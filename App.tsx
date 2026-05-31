@@ -398,11 +398,39 @@ export default function App() {
   const [notifTimeEvening, setNotifTimeEvening] = useState('18:00');
   const [subscription, setSubscription]   = useState<Subscription>({
     plan: 'free', expiresAt: null, purchasedAt: null, isActive: true,
+    isAdmin: false, isEarlyBird: false,
   });
   const [themeLoaded, setThemeLoaded] = useState(false);
   const [offlineMode, setOfflineMode] = useState(false);
   // Синхронизируем ref для PanResponder (замыкание не видит стейт)
+  // Флаг: subscription загружена из Firestore (не дефолтное значение)
+  const subscriptionLoaded = useRef(false);
   useEffect(() => { screenRef.current = screen; }, [screen]);
+
+  // Автогенерация инвайт-ссылки при переходе на экран invite
+  // Ждём загрузки subscription — иначе canInvite() вернёт false для платного юзера
+  useEffect(() => {
+    if (screen === 'invite' && !invLink && myId && myId !== 'guest' && subscriptionLoaded.current) {
+      genInvite().catch(() => {});
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [screen, invLink, subscription.plan]);
+
+  // Загрузка заметок при открытии детального экрана привычки
+  useEffect(() => {
+    if (screen === 'detail' && detailH) {
+      const dates: string[] = [];
+      for (let i = 0; i < 14; i++) {
+        const d = new Date(); d.setDate(d.getDate() - i);
+        dates.push(d.toISOString().split('T')[0]);
+      }
+      Storage.getNotesForHabit(myId, detailH.id, dates)
+        .then(notes => setDetailNotes(notes))
+        .catch(() => {});
+    }
+    if (screen !== 'detail') setDetailNotes({});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [screen, detailH?.id]);
 
   useEffect(() => {
     let cancelled = false;
@@ -413,7 +441,7 @@ export default function App() {
       } catch { if (!cancelled) setIsOnline(true); }
     };
     check();
-    const id = setInterval(check, 5000);
+    const id = setInterval(check, 30000); // 30 сек — достаточно для UI, не перегружает CPU
     return () => { cancelled = true; clearInterval(id); };
   }, []);
   // FIX 1: ждём ответа Firebase перед рендером экрана входа
@@ -599,7 +627,10 @@ export default function App() {
       if (session.spaceId) startSubs(session.spaceId);
       setScreen('today');
       // Подписка — в фоне
-      loadSubscription(user.uid).then(sub => setSubscription(sub)).catch(()=>{});
+      loadSubscription(user.uid).then(sub => {
+        setSubscription(sub);
+        subscriptionLoaded.current = true;
+      }).catch(() => { subscriptionLoaded.current = true; });
     });
     return () => { unsub(); stopSubs(); clearTimeout(offlineTimer); };
   }, []);
@@ -771,7 +802,7 @@ export default function App() {
     // Оптимистичное обновление — сразу обновляем UI без ожидания Firestore
     setSpace(prev => prev ? { ...prev, logs: l } : prev);
     // Кэш для офлайн режима
-    AsyncStorage.setItem('offline_logs_' + (space?.id||''), JSON.stringify(l)).catch(()=>{});
+    AsyncStorage.setItem('pt_offline_logs_' + (space?.id||''), JSON.stringify(l)).catch(()=>{});
     try {
       saveL(l).catch(e => console.warn('[toggle saveL]', e)); // fire and forget
       // Обновляем badge и серию
@@ -780,15 +811,6 @@ export default function App() {
         const streak = calcStreak(hid, myId, l, currentHabit.days);
         const hasP = (space?.members?.length ?? 0) > 1;
         if (streak >= 2) scheduleStreakReminder(streak, hasP, notifEnabled).catch(()=>{});
-        // maxStreak вычисляется через useMemo из logs — не нужно сохранять отдельно
-    // Widget update: активируется после EAS Build (npm install react-native-android-widget)
-
-        // Запросить отзыв после 5 выполнений
-        if (totalDone === 5 || totalDone === 25) {
-          setTimeout(() => {
-            Linking.openURL('rustore://review?packageName=com.attach4.pathtogether').catch(()=>{});
-          }, 2000);
-        }
       }
       // Badge = кол-во невыполненных привычек сегодня
       const dow2 = todayDow();
@@ -796,8 +818,14 @@ export default function App() {
       const doneCnt = todayHabits.filter(h=>isLogged(h.id,myId,l)).length;
       const remaining = Math.max(0, todayHabits.length - doneCnt);
       Notifications.setBadgeCountAsync(remaining).catch(()=>{});
-      // Проверяем новые достижения
+      // Проверяем новые достижения — totalDoneNow объявляется ЗДЕСЬ, до использования
       const totalDoneNow = Object.keys(l).filter(k=>k.includes(`_${myId}`)).length;
+      // Запросить отзыв после 5 и 25 выполнений
+      if (totalDoneNow === 5 || totalDoneNow === 25) {
+        setTimeout(() => {
+          Linking.openURL('rustore://review?packageName=com.attach4.pathtogether').catch(()=>{});
+        }, 2000);
+      }
       const achs = buildAchievements({
         habitCount: space?.habits?.length ?? 0,
         totalDone: totalDoneNow,
@@ -904,61 +932,75 @@ export default function App() {
   };
 
   const doJoin = async (code:string) => {
-    // Проверяем подписку и лимит участников
-    if (!canInvite(subscription)) {
-      setPendInv(null);
-      setScreen('paywall');
-      return;
-    }
-    if (!canAddMember(subscription, members.length)) {
-      Alert.alert(
-        (lang === 'en' ? 'Member limit reached' : 'Достигнут лимит участников'),
-        isEn
-          ? `Your ${PLAN_LIMITS[subscription.plan].label_en} plan allows up to ${PLAN_LIMITS[subscription.plan].maxMembers} member(s). Upgrade to add more.`
-          : `Тариф ${PLAN_LIMITS[subscription.plan].label_ru} позволяет до ${PLAN_LIMITS[subscription.plan].maxMembers} участника(ов). Обновите тариф чтобы добавить больше.`,
-        [
-          { text: (lang === 'en' ? 'Cancel' : 'Отмена'), style: 'cancel' },
-          { text: (lang === 'en' ? 'Upgrade' : 'Обновить'), onPress: () => { setPendInv(null); setScreen('paywall'); } },
-        ]
-      );
+    // Принимающий НЕ должен иметь подписку — платит тот, кто создаёт пространство (хост).
+    // Лимит участников определяется планом ХОСТА, проверяется внутри транзакции.
+    if (!myId || myId === 'guest') {
+      toast$(isEn ? 'Please sign in first' : 'Сначала войдите в аккаунт', false);
       return;
     }
     try {
-      const inv=await Storage.getInvite(code);
-      if(!inv){toast$(isEn?'Invalid link':'Ссылка недействительна',false);return;}
-      if(space?.id===inv.spaceId){toast$(isEn?'Already here':'Уже здесь',false);return;}
-      const ref=doc(db,'spaces',inv.spaceId,'data','members');
-      // Получаем подписку хоста пространства для проверки его лимита
-      const hostSubSnap = await getDoc(doc(db,'users',inv.creatorId)).catch(()=>null);
-      const hostPlan: 'free'|'duo'|'team'|'admin' =
-        (hostSubSnap?.exists() ? hostSubSnap.data().plan : null) || 'free';
-      const hostMax = PLAN_LIMITS[hostPlan]?.maxMembers ?? 1;
-      await runTransaction(db,async tx=>{
-        const snap=await tx.get(ref);
-        const cur:Member[]=snap.exists()?(snap.data().v||[]):[];
-        if(cur.find(m=>m.id===myId)) return;
-        // Серверная проверка лимита хоста
-        if(cur.length >= hostMax) {
-          throw new Error('LIMIT_REACHED');
+      const inv = await Storage.getInvite(code);
+      if (!inv) { toast$(isEn ? 'Invalid link' : 'Ссылка недействительна', false); return; }
+      // Проверяем не истёк ли инвайт (7 дней)
+      if ((inv as any).expiresAt && (inv as any).expiresAt < Date.now()) {
+        toast$(isEn ? 'Invite link has expired' : 'Ссылка приглашения истекла', false);
+        return;
+      }
+      if (space?.id === inv.spaceId) { toast$(isEn ? 'Already here' : 'Уже здесь', false); return; }
+
+      const membersRef = doc(db, 'spaces', inv.spaceId, 'data', 'members');
+      const hostRef    = doc(db, 'users', inv.creatorId);
+
+      await runTransaction(db, async tx => {
+        // Читаем оба документа ВНУТРИ транзакции — атомарно, без race condition
+        const [membSnap, hostSnap] = await Promise.all([
+          tx.get(membersRef),
+          tx.get(hostRef),
+        ]);
+
+        // Определяем лимит хоста с проверкой срока действия плана
+        const hostData = hostSnap.exists() ? hostSnap.data() : null;
+        let hostPlan: 'free'|'duo'|'team'|'admin' = hostData?.plan || 'free';
+        if (hostPlan !== 'free' && hostPlan !== 'admin' && hostData?.planExpiresAt) {
+          const expires = typeof hostData.planExpiresAt === 'number'
+            ? hostData.planExpiresAt
+            : new Date(hostData.planExpiresAt).getTime();
+          if (expires < Date.now()) hostPlan = 'free';
         }
-        const updated=[...cur,{id:myId,name:myName,role:'member' as const,joined:todayS()}];
-        tx.set(ref,{
+        const hostMax = PLAN_LIMITS[hostPlan]?.maxMembers ?? 1;
+
+        const cur: Member[] = membSnap.exists() ? (membSnap.data().v || []) : [];
+        if (cur.find(m => m.id === myId)) return; // уже участник
+        if (cur.length >= hostMax) throw new Error('LIMIT_REACHED');
+
+        const updated = [...cur, { id: myId, name: myName, role: 'member' as const, joined: todayS() }];
+        tx.set(membersRef, {
           v: updated,
-          memberIds: updated.map(m=>m.id),
-          ownerIds:  updated.filter(m=>m.role==='owner').map(m=>m.id),
+          memberIds: updated.map(m => m.id),
+          ownerIds:  updated.filter(m => m.role === 'owner').map(m => m.id),
         });
       });
-      await Storage.saveCurrentSpace(inv.spaceId);
+
+      // Удаляем себя из СТАРОГО пространства (чтобы не быть в двух сразу)
+      if (space?.id && space.id !== inv.spaceId) {
+        const oldMembers = (space.members || []).filter(m => m.id !== myId);
+        Storage.setMembers(space.id, oldMembers).catch(e => console.warn('[doJoin] leave old space', e));
+      }
+
+      await Storage.saveCurrentSpace(inv.spaceId, myId);
       startSubs(inv.spaceId);
       setPendInv(null);
       // Удаляем инвайт после использования
-      try { await deleteDoc(doc(db,'invites',code)); } catch {}
-      toast$(isEn?'Joined! ':'Присоединились! ');
-    } catch(e:any) {
+      try { await deleteDoc(doc(db, 'invites', code)); } catch {}
+      toast$(isEn ? 'Joined! ' : 'Присоединились! ');
+    } catch (e: any) {
       if (e?.message === 'LIMIT_REACHED') {
-        toast$((lang === 'en' ? 'Space is full' : 'Пространство заполнено'), false);
+        toast$((lang === 'en'
+          ? 'Space is full — host needs to upgrade their plan'
+          : 'Пространство заполнено — хосту нужно улучшить тариф'), false);
       } else {
-        toast$(isEn?'Error':'Ошибка',false);
+        console.warn('[doJoin]', e);
+        toast$(isEn ? 'Error joining space' : 'Ошибка при входе', false);
       }
     }
   };
@@ -1045,9 +1087,10 @@ export default function App() {
           initPurchases(uid).catch(()=>{});
           registerDeviceToken(uid).catch(()=>{});
           if (isNew) {
-            // Новый пользователь — очищаем весь локальный кеш пространства
-            await Storage.set('space_id', null);
-            await Storage.set('onboarding_done', null);
+            // Новый пользователь — очищаем весь локальный кеш пространства (per-user и legacy)
+            await Storage.clearSpaceId(uid);
+            await Storage.set(`onboarding_${uid}`, null);
+            setSpace(null);
             setScreen('onboarding');
             return;
           }
@@ -1056,7 +1099,10 @@ export default function App() {
           if (!session.onbDone) { setScreen('onboarding'); return; }
           if (session.spaceId) startSubs(session.spaceId);
           setScreen('today');
-          loadSubscription(uid).then(sub => setSubscription(sub)).catch(()=>{});
+          loadSubscription(uid).then(sub => {
+            setSubscription(sub);
+            subscriptionLoaded.current = true;
+          }).catch(() => { subscriptionLoaded.current = true; });
         } finally {
           isRegistering.current = false;
         }
@@ -1268,55 +1314,13 @@ export default function App() {
         onNameChange={name=>setMyName(name)}
         onLogout={async()=>{
           if (isGuest()) { setMyId(''); setMyName(''); setScreen('auth'); return; }
-          const uid=myId;stopSubs();await auth.signOut();await Storage.set(`space_id_${uid}`,null);await Storage.set(`onboarding_done_${uid}`,null);setSpace(null);setMyId('');setMyName('');setScreen('auth');}}/>
+          const uid=myId;
+          stopSubs();
+          await auth.signOut();
+          await Storage.clearSpaceId(uid);
+          await Storage.set(`onboarding_${uid}`, null);
+          setSpace(null); setMyId(''); setMyName(''); setScreen('auth');}}/>
       {toast&&<Toast msg={toast.msg} ok={toast.ok} tk={tk}/>}
-      {/* Note Modal */}
-      <Modal
-        visible={!!noteModal}
-        transparent
-        animationType="slide"
-        onRequestClose={()=>{Keyboard.dismiss();setNoteModal(null);}}
-        statusBarTranslucent>
-        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-          <View style={{flex:1,backgroundColor:'rgba(0,0,0,0.5)',justifyContent:'flex-end'}}>
-            <TouchableWithoutFeedback onPress={()=>{}}>
-              <View style={{backgroundColor:tk.bg,borderTopLeftRadius:20,borderTopRightRadius:20,
-                padding:20,paddingBottom:Platform.OS==='ios'?34:20,
-                marginBottom: noteKbHeight}}>
-                <Text style={{fontSize:15,fontWeight:'700',color:tk.text,marginBottom:4}}>
-                  {isEn?'Add a note':'Добавить заметку'}
-                </Text>
-                <Text style={{fontSize:11,color:tk.text3,marginBottom:12}}>
-                  {isEn?'Optional — how did it go?':'Необязательно — как прошло?'}
-                </Text>
-                <TextInput
-                  value={noteText} onChangeText={setNoteText}
-                  placeholder={isEn?'Type something...':'Напишите что-нибудь...'}
-                  placeholderTextColor={tk.text3}
-                  multiline maxLength={200}
-                  style={{backgroundColor:tk.bg2,borderWidth:1,borderColor:tk.border,
-                    borderRadius:14,padding:12,fontSize:14,color:tk.text,
-                    height:72,textAlignVertical:'top',marginBottom:12}}/>
-                <View style={{flexDirection:'row',gap:10}}>
-                  <TouchableOpacity onPress={()=>{Keyboard.dismiss();setNoteModal(null);}}
-                    style={{flex:1,padding:12,borderRadius:14,borderWidth:1,borderColor:tk.border,alignItems:'center'}}>
-                    <Text style={{color:tk.text2,fontSize:14}}>{isEn?'Skip':'Пропустить'}</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    onPress={async()=>{
-                      Keyboard.dismiss();
-                      if(noteModal && noteText.trim()) await Storage.setNote(myId,noteModal.habitId,noteModal.date,noteText.trim());
-                      setNoteModal(null);
-                    }}
-                    style={{flex:1,padding:12,borderRadius:14,backgroundColor:tk.text,alignItems:'center'}}>
-                    <Text style={{color:tk.bg,fontSize:14,fontWeight:'700'}}>{isEn?'Save':'Сохранить'}</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            </TouchableWithoutFeedback>
-          </View>
-        </TouchableWithoutFeedback>
-      </Modal>
 
       {/* Cover View — перекрывает старый экран при переходе */}
       {coverVisible && (
@@ -1340,6 +1344,7 @@ export default function App() {
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{padding:20,paddingBottom:60}} keyboardShouldPersistTaps="handled">
           <View style={{flexDirection:'row',alignItems:'center',gap:12,marginBottom:28}}>
             <TouchableOpacity onPress={()=>{
+              const backTarget = editH ? 'detail' : 'today';
               if(nh.name.trim()) {
                 const {Alert: A} = require('react-native');
                 A.alert(
@@ -1347,11 +1352,11 @@ export default function App() {
                   isEn?'You have unsaved changes':'У вас есть несохранённые изменения',
                   [
                     {text:isEn?'Keep editing':'Продолжить редактирование',style:'cancel'},
-                    {text:isEn?'Discard':'Отменить',style:'destructive',onPress:()=>{setScreen('add');setEditH(null);setNh(blank);setShowTimePicker(false);}},
+                    {text:isEn?'Discard':'Отменить',style:'destructive',onPress:()=>{animateScreenChange(backTarget,'back');setEditH(null);setNh(blank);setShowTimePicker(false);}},
                   ]
                 );
               } else {
-                setScreen('add');setEditH(null);setNh(blank);setShowTimePicker(false);
+                animateScreenChange(backTarget,'back');setEditH(null);setNh(blank);setShowTimePicker(false);
               }
             }}
               style={{width:36,height:36,borderRadius:10,backgroundColor:tk.bg2,borderWidth:1,borderColor:tk.border,alignItems:'center',justifyContent:'center'}}>
@@ -1628,7 +1633,8 @@ export default function App() {
   );
 
   //  INVITE 
-  if (screen==='invite') return (
+  if (screen==='invite') {
+    return (
     <View style={{flex:1,paddingTop:TOP,backgroundColor:tk.bg}}>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{padding:20,paddingBottom:60}}>
         <View style={{flexDirection:'row',alignItems:'center',gap:12,marginBottom:28}}>
@@ -1693,22 +1699,11 @@ export default function App() {
       </ScrollView>
       {toast&&<Toast msg={toast.msg} ok={toast.ok} tk={tk}/>}
     </View>
-  );
-
-  //  DETAIL 
+    );
+  }
   if (screen==='detail'&&detailH) {
     const h=detailH;
-    // Load notes for this habit (last 14 days)
-    const loadDetailNotes = async () => {
-      const dates: string[] = [];
-      for (let i = 0; i < 14; i++) {
-        const d = new Date(); d.setDate(d.getDate() - i);
-        dates.push(d.toISOString().split('T')[0]);
-      }
-      const notes = await Storage.getNotesForHabit(myId, h.id, dates);
-      setDetailNotes(notes);
-    };
-    if (Object.keys(detailNotes).length === 0) loadDetailNotes(); const own=h.ownerId===myId;
+    const own=h.ownerId===myId;
     const myStreak=calcStreak(h.id,myId,logs,h.days);
     return (
       <View style={{flex:1,paddingTop:TOP,backgroundColor:tk.bg}}>
@@ -2138,19 +2133,43 @@ export default function App() {
           </TouchableOpacity>
         </View>
       )}
-      {pendInv&&(
-        <View style={{position:'absolute',bottom:80,left:20,right:20,backgroundColor:tk.bg2,borderRadius:14,padding:16,borderWidth:1,borderColor:tk.border}}>
-          <Text style={{fontSize:13,fontWeight:'600',color:tk.text,marginBottom:10}}> {isEn?'You were invited':'Вас приглашают'}</Text>
-          <View style={{flexDirection:'row',gap:8}}>
-            <TouchableOpacity onPress={()=>setPendInv(null)} style={{flex:1,padding:10,borderRadius:10,backgroundColor:tk.bg3,alignItems:'center'}}>
-              <Text style={{fontSize:12,color:tk.text3}}>{isEn?'Decline':'Отклонить'}</Text>
-            </TouchableOpacity>
-            <TouchableOpacity onPress={()=>doJoin(pendInv)} style={{flex:2,padding:10,borderRadius:10,backgroundColor:tk.text,alignItems:'center'}}>
-              <Text style={{fontSize:12,fontWeight:'700',color:tk.bg}}>{isEn?'Accept':'Принять'}</Text>
-            </TouchableOpacity>
+      {/* Invite banner — Modal чтобы показываться поверх ЛЮБОГО экрана */}
+      <Modal
+        visible={!!pendInv && screen !== 'auth' && screen !== 'onboarding'}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPendInv(null)}>
+        <TouchableWithoutFeedback onPress={() => setPendInv(null)}>
+          <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
+            <TouchableWithoutFeedback onPress={() => {}}>
+              <View style={{ backgroundColor: tk.bg2, borderTopLeftRadius: 20, borderTopRightRadius: 20,
+                padding: 20, paddingBottom: Platform.OS === 'ios' ? 40 : 24,
+                borderTopWidth: 1, borderColor: tk.border }}>
+                <View style={{ alignItems: 'center', marginBottom: 12 }}>
+                  <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: tk.border }}/>
+                </View>
+                <Text style={{ fontSize: 17, fontWeight: '700', color: tk.text, marginBottom: 4 }}>
+                  {isEn ? 'You were invited' : 'Вас приглашают'}
+                </Text>
+                <Text style={{ fontSize: 13, color: tk.text3, marginBottom: 20 }}>
+                  {isEn ? 'Accept the invitation to track habits together' : 'Примите приглашение чтобы отслеживать привычки вместе'}
+                </Text>
+                <View style={{ flexDirection: 'row', gap: 10 }}>
+                  <TouchableOpacity onPress={() => setPendInv(null)}
+                    style={{ flex: 1, padding: 14, borderRadius: 14, backgroundColor: tk.bg3,
+                      borderWidth: 1, borderColor: tk.border, alignItems: 'center' }}>
+                    <Text style={{ fontSize: 14, color: tk.text3 }}>{isEn ? 'Decline' : 'Отклонить'}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => pendInv && doJoin(pendInv)}
+                    style={{ flex: 2, padding: 14, borderRadius: 14, backgroundColor: tk.text, alignItems: 'center' }}>
+                    <Text style={{ fontSize: 14, fontWeight: '700', color: tk.bg }}>{isEn ? 'Accept' : 'Принять'}</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </TouchableWithoutFeedback>
           </View>
-        </View>
-      )}
+        </TouchableWithoutFeedback>
+      </Modal>
       {loading&&<Loader tk={tk}/>}
       {toast&&<Toast msg={toast.msg} ok={toast.ok} tk={tk}/>}
     </View>

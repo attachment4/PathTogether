@@ -40,24 +40,37 @@ export const isLogged = (hid: string, uid: string, logs: Record<string,boolean>,
 
 export const calcStreak = (hid: string, uid: string, logs: Record<string,boolean>, days?: number[]) => {
   let streak = 0;
-  let skipsUsed = 0;
   const MAX_SKIPS_PER_WEEK = 1;
   const d = new Date();
+  // Отслеживаем пропуски по ISO-неделям (понедельник = начало недели)
+  const weekSkips: Record<string, number> = {};
+
+  const getISOWeek = (date: Date): string => {
+    const tmp = new Date(date);
+    tmp.setHours(12, 0, 0, 0);
+    tmp.setDate(tmp.getDate() + 3 - ((tmp.getDay() + 6) % 7));
+    const week1 = new Date(tmp.getFullYear(), 0, 4);
+    const weekNum = 1 + Math.round(((tmp.getTime() - week1.getTime()) / 86400000 - 3 + ((week1.getDay() + 6) % 7)) / 7);
+    return `${tmp.getFullYear()}-W${weekNum}`;
+  };
+
   for (let i = 0; i < 365; i++) {
     const ds = dateToS(d);
     const dow = getDow(ds);
     if (days && !days.includes(dow)) { d.setDate(d.getDate()-1); continue; }
     if (logs[`${hid}_${ds}_${uid}`]) {
       streak++;
-      // Reset skip counter every 7 logged days
-      if (streak % 7 === 0) skipsUsed = 0;
     } else if (i === 0) {
-      // Today not done yet — don't break
-    } else if (skipsUsed < MAX_SKIPS_PER_WEEK) {
-      // Use a skip — streak protection
-      skipsUsed++;
+      // Сегодня ещё не выполнено — не прерываем серию
     } else {
-      break;
+      // Пропуск — проверяем лимит по КАЛЕНДАРНОЙ неделе
+      const wk = getISOWeek(d);
+      const usedThisWeek = weekSkips[wk] || 0;
+      if (usedThisWeek < MAX_SKIPS_PER_WEEK) {
+        weekSkips[wk] = usedThisWeek + 1;
+      } else {
+        break;
+      }
     }
     d.setDate(d.getDate()-1);
   }

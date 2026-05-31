@@ -118,7 +118,9 @@ export default function AuthScreen({ tk, lang = 'ru', onSuccess, onGuest }: Prop
       const credential = GoogleAuthProvider.credential(idToken);
       const userCred = await signInWithCredential(auth, credential);
       const user = userCred.user;
-      onSuccess(user.uid, user.displayName || user.email?.split('@')[0] || 'User', false);
+      // Определяем новый ли это пользователь через additionalUserInfo
+      const isNewUser = (userCred as any).additionalUserInfo?.isNewUser ?? false;
+      onSuccess(user.uid, user.displayName || user.email?.split('@')[0] || 'User', isNewUser);
     } catch (e: any) {
       if (e.code === statusCodes?.SIGN_IN_CANCELLED) {
         // пользователь отменил

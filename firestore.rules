@@ -23,17 +23,49 @@ service cloud.firestore {
       );
     }
 
+    // Пользователь добавляет ТОЛЬКО себя в members (для doJoin)
+    // Проверяем: новый массив memberIds содержит uid, старый — нет
+    function isJoiningSelf(spaceId) {
+      let ref = /databases/$(database)/documents/spaces/$(spaceId)/data/members;
+      let uid = request.auth.uid;
+      let newIds = request.resource.data.memberIds;
+      // uid должен быть в новом списке
+      let uidInNew = uid in newIds;
+      // uid не должен быть в старом (иначе просто обновление)
+      let existingIds = exists(ref) ? get(ref).data.memberIds : [];
+      let uidNotInOld = !(uid in existingIds);
+      // Размер нового списка = старый + 1 (нельзя добавить больше одного за раз)
+      let sizeOk = newIds.size() == existingIds.size() + 1;
+      return isAuthed() && uidInNew && uidNotInOld && sizeOk;
+    }
+
     match /users/{uid} {
       allow read, write: if isAuthed() && request.auth.uid == uid;
     }
 
     match /spaces/{spaceId} {
+      // Привычки: только участники пространства
       match /habits/{habitId} {
-        allow read, write: if isAuthed();
+        allow read:   if isMember(spaceId);
+        allow create: if isMember(spaceId);
+        allow update: if isMember(spaceId);
+        // Удалять привычку может только её владелец или owner пространства
+        allow delete: if isAuthed() && (
+          isOwner(spaceId) ||
+          resource.data.ownerId == request.auth.uid
+        );
       }
 
       match /data/{document} {
-        allow read, write: if isAuthed();
+        allow read: if isMember(spaceId);
+        allow write: if isAuthed() && (
+          document == 'members'
+            // Создание первого члена (ensureSpace), обновление owner'ом, или join (добавление себя)
+            ? (isOwner(spaceId)
+               || !exists(/databases/$(database)/documents/spaces/$(spaceId)/data/members)
+               || isJoiningSelf(spaceId))
+            : isMember(spaceId)
+        );
       }
 
       match /notifications/{notifId} {
@@ -56,10 +88,9 @@ service cloud.firestore {
 
     match /config/{document} {
       allow read: if isAuthed();
-      allow write: if false; // Общий запрет
+      allow write: if false;
     }
 
-    // early_birds — транзакционная запись разрешена авторизованным
     match /config/early_birds {
       allow read:   if isAuthed();
       allow write:  if isAuthed();
@@ -67,6 +98,11 @@ service cloud.firestore {
 
     match /subscriptions/{uid} {
       allow read, write: if isAuthed() && request.auth.uid == uid;
+    }
+
+    match /payments/{paymentId} {
+      allow read: if isAuthed() && resource.data.uid == request.auth.uid;
+      allow write: if false;
     }
 
   }
