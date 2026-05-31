@@ -899,7 +899,7 @@ export default function TodayScreen({
 
         {/* Прогресс партнёра */}
         {hasPartner && partner && (() => {
-          const partDoneCount = todayH.filter(h => partnerId && isLogged(h.id, partnerId, logs, ds)).length;
+          const partDoneCount = todayH.filter(h => isLogged(h.id, partner.id, logs, ds)).length;
           const partTotal = todayH.length;
           if (partTotal === 0) return null;
           const pct = partDoneCount / partTotal;
