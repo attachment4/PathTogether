@@ -659,19 +659,17 @@ export default function App() {
   const stopSubs = () => { unsubH.current?.(); unsubH.current=null; unsubL.current?.(); unsubL.current=null; unsubM.current?.(); unsubM.current=null; };
   const startSubs = (sid:string) => {
     stopSubs();
-    // НЕ вызываем setSpace здесь — doJoin уже установил чистый стейт,
-    // а при обычном старте state будет обновлён первым снапшотом от Firestore.
-    // Это устраняет race condition между setSpace({empty}) и первым снапшотом.
 
     unsubH.current = Storage.subscribeHabits(sid, habits => {
       try {
+        const safeHabits = Array.isArray(habits) ? habits : [];
         setSpace(p => {
-          if (!p || p.id !== sid) return p; // игнорируем данные не от текущего space
-          return {...p, habits: Array.isArray(habits) ? habits : []};
+          // Если space другого id — игнорируем; если null — создаём (Firestore кэш быстрее setState)
+          if (p && p.id !== sid) return p;
+          return p ? {...p, habits: safeHabits} : {id:sid, habits:safeHabits, logs:{}, members:[]};
         });
-        // Уведомления планируем асинхронно, не в теле setState
         setTimeout(() => {
-          scheduleHabitNotifications(habits || [], false, notifEnabled).catch(()=>{});
+          scheduleHabitNotifications(safeHabits, false, notifEnabled).catch(()=>{});
         }, 0);
       } catch (e) { console.warn('[startSubs] habits cb', e); }
     });
@@ -683,17 +681,18 @@ export default function App() {
         const safeNewLogs = newLogs && typeof newLogs === 'object' ? newLogs : {};
         const today = new Date().toISOString().split('T')[0];
         setSpace(prev => {
-          if (!prev || prev.id !== sid) return prev;
-          // Уведомления партнёра — только если оба участника загружены
-          if (prev.members.length > 1 && partnerNotif) {
-            const partner = prev.members.find(m => m.id !== myId);
+          if (prev && prev.id !== sid) return prev;
+          const base = prev ?? {id:sid, habits:[], logs:{}, members:[]};
+          // Уведомления партнёра — только если оба участника уже загружены
+          if (base.members.length > 1 && partnerNotif) {
+            const partner = base.members.find(m => m.id !== myId);
             if (partner) {
               setTimeout(() => {
                 Object.keys(safeNewLogs).forEach(key => {
                   const expectedSuffix = `_${today}_${partner.id}`;
                   if (!prevLogsRef.current[key] && key.endsWith(expectedSuffix)) {
                     const hid = key.replace(expectedSuffix, '');
-                    const habit = prev.habits.find(h => h.id === hid);
+                    const habit = base.habits.find(h => h.id === hid);
                     if (habit) {
                       notifyPartnerDone(partner.name, habit.name).catch(()=>{});
                       requestPartnerNotification().catch(()=>{});
@@ -706,7 +705,7 @@ export default function App() {
           } else {
             prevLogsRef.current = safeNewLogs;
           }
-          return {...prev, logs: safeNewLogs};
+          return {...base, logs: safeNewLogs};
         });
       } catch (e) { console.warn('[startSubs] logs cb', e); }
     });
@@ -715,8 +714,8 @@ export default function App() {
       try {
         const safeMembers = Array.isArray(members) ? members : [];
         setSpace(p => {
-          if (!p || p.id !== sid) return p;
-          return {...p, members: safeMembers};
+          if (p && p.id !== sid) return p;
+          return p ? {...p, members: safeMembers} : {id:sid, habits:[], logs:{}, members:safeMembers};
         });
         setTimeout(() => {
           const hasPartnerNow = safeMembers.length > 1;
