@@ -12,7 +12,9 @@ interface Props {
   myId: string; myName: string; lang: string; tk: Theme;
   habits: Habit[]; logs: Record<string, boolean>;
   members: Member[]; maxStreak: number; totalDone: number;
-  plan: 'free' | 'duo' | 'team' | 'admin';
+  plan: 'free' | 'duo' | 'team' | 'admin' | 'trial';
+  statsTab?: 'me'|'partner';
+  onStatsTabChange?: (tab: 'me'|'partner') => void;
   onBack: () => void;
 }
 
@@ -110,6 +112,7 @@ function Ring({ pct, color, size = 80, stroke = 8, label, tk }:
 //  Главный компонент 
 export default function StatisticsScreen({
   myId, myName, lang, tk, habits, logs, members, maxStreak, totalDone, plan, onBack,
+  statsTab: statsTabProp, onStatsTabChange,
 }: Props) {
   const isEn = lang === 'en';
 
@@ -123,7 +126,8 @@ export default function StatisticsScreen({
     lang==='en' ? en : lang==='uk' ? (uk||ru) : lang==='be' ? (be||ru) : lang==='kk' ? (kk||ru) : ru;
   const isTeam = plan === 'team' || plan === 'admin';
   const hasPair = members.length > 1;
-  const [statsTab, setStatsTab] = useState<'me'|'partner'>('me');
+  const [statsTab, setStatsTab] = useState<'me'|'partner'>(statsTabProp ?? 'me');
+  const handleTabChange = (t: 'me'|'partner') => { setStatsTab(t); onStatsTabChange?.(t); };
   const statsUserId = statsTab === 'partner' && hasPair ? (members.find((m:any)=>m.id!==myId)?.id||myId) : myId;
   const partner = members.find(m => m.id !== myId);
 
@@ -228,7 +232,7 @@ export default function StatisticsScreen({
             ['me',      isEn ? 'My stats'                              : 'Мои'],
             ['partner', members.find((m:any)=>m.id!==myId)?.name || (isEn?'Partner':'Партнёр')],
           ] as [string,string][]).map(([tab, label]) => (
-            <TouchableOpacity key={tab} onPress={() => setStatsTab(tab as 'me'|'partner')}
+            <TouchableOpacity key={tab} onPress={() => handleTabChange(tab as 'me'|'partner')}
               style={{ flex: 1, paddingVertical: 8, borderRadius: 9, alignItems: 'center',
                 backgroundColor: statsTab===tab ? tk.bg3 : 'transparent' }}>
               <Text style={{ fontSize: 13, fontWeight: statsTab===tab ? '700' : '400',
@@ -582,9 +586,10 @@ export default function StatisticsScreen({
                 textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 12 }}>
                 {isEn ? 'Activity' : lang==='uk' ? 'Активність' : 'Активность'}
               </Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingRight: 8 }}>
               <View style={{ flexDirection: 'row', gap: 3 }}>
                 {rows.map((week, wi) => (
-                  <View key={wi} style={{ flex: 1, gap: 3 }}>
+                  <View key={wi} style={{ width: 14, gap: 3 }}>
                     {week.map((cell, di) => {
                       const future = cell.date > today.toISOString().split('T')[0];
                       const bg = future || cell.pct < 0
@@ -608,6 +613,7 @@ export default function StatisticsScreen({
                   </View>
                 ))}
               </View>
+              </ScrollView>
               <View style={{ flexDirection: 'row', justifyContent: 'flex-end',
                 alignItems: 'center', gap: 4, marginTop: 8 }}>
                 <Text style={{ fontSize: 9, color: tk.text3 }}>{isEn ? 'Less' : 'Меньше'}</Text>

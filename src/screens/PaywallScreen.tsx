@@ -38,6 +38,7 @@ function PlanCard({ plan, sub, isEn, lang, onSelect, tk, isSelected }: {
   plan: 'free' | 'duo' | 'team';
   sub: Subscription;
   isEn: boolean;
+  lang?: string;
   onSelect: (plan: 'free' | 'duo' | 'team') => void;
   tk: Theme;
   isSelected?: boolean;
@@ -82,7 +83,7 @@ function PlanDetail({ plan, isEn, lang, tk, onSelect }: {
   const accentColor = plan === 'duo' ? tk.accent : '#0ea5e9';
   const features = {
     duo: [
-      { icon: 'ti-users',      text: isEn ? 'Invite one partner' : 'Пригласить партнёра' },
+      { icon: 'ti-users',      text: isEn ? 'Invite 1 friend or partner' : 'Пригласить друга или партнёра' },
       { icon: 'ti-chart-line', text: isEn ? 'See progress in real time' : 'Прогресс в реальном времени' },
       { icon: 'ti-flame',      text: isEn ? 'Shared streaks & achievements' : 'Общие серии и достижения' },
       { icon: 'ti-bell',       text: isEn ? 'Partner completion alerts' : 'Уведомления о выполнении' },
@@ -254,6 +255,25 @@ export default function PaywallScreen({
           </Text>
         </View>
 
+        {/* Статус: Trial */}
+        {subscription.plan === 'trial' && subscription.isActive && (
+          <View style={{ backgroundColor: 'rgba(124,58,237,0.1)', borderWidth: 1,
+            borderColor: 'rgba(124,58,237,0.3)', borderRadius: 16, padding: 16,
+            marginBottom: 16, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+            <Text style={{ fontSize: 22 }}>🎉</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 14, fontWeight: '700', color: '#7c3aed' }}>
+                {isEn ? 'You have 3 days of free access!' : 'У тебя 3 дня бесплатного доступа!'}
+              </Text>
+              {daysLeft !== null && (
+                <Text style={{ fontSize: 12, color: tk.text3, marginTop: 2 }}>
+                  {isEn ? `${daysLeft} day${daysLeft === 1 ? '' : 's'} remaining` : `Осталось ${daysLeft} ${daysLeft === 1 ? 'день' : daysLeft < 5 ? 'дня' : 'дней'}`}
+                </Text>
+              )}
+            </View>
+          </View>
+        )}
+
         {/* Статус: Admin */}
         {subscription.isAdmin && (
           <View style={{ backgroundColor: 'rgba(34,197,94,0.1)', borderWidth: 1,
@@ -291,7 +311,7 @@ export default function PaywallScreen({
         )}
 
         {/* Статус: обычная платная подписка */}
-        {subscription.plan !== 'free' && !subscription.isAdmin && !subscription.isEarlyBird && (
+        {subscription.plan !== 'free' && subscription.plan !== 'trial' && !subscription.isAdmin && !subscription.isEarlyBird && (
           <View style={{ backgroundColor: PLAN_LIMITS[subscription.plan].color + '15',
             borderWidth: 1, borderColor: PLAN_LIMITS[subscription.plan].color + '30',
             borderRadius: 14, padding: 14, marginBottom: 16,
@@ -363,27 +383,35 @@ export default function PaywallScreen({
           </>
         )}
 
+        {/* Restore purchases — secondary button */}
+        <TouchableOpacity
+          onPress={async () => {
+            const result = await restorePurchases(lang, myId);
+            if (result && result.plan !== 'free') {
+              const sub = await activatePlan(myId, result.plan as any);
+              onPlanChange(sub);
+            }
+          }}
+          style={{
+            marginTop: 12,
+            borderRadius: 12,
+            borderWidth: 1,
+            borderColor: tk.border,
+            padding: 13,
+            alignItems: 'center',
+          }}>
+          <Text style={{ fontSize: 14, fontWeight: '500', color: tk.text2 }}>
+            {lang === 'en' ? 'Restore purchases' : 'Восстановить покупки'}
+          </Text>
+        </TouchableOpacity>
+
         {/* Footnote */}
-        <View style={{ marginTop: 8, gap: 6 }}>
+        <View style={{ marginTop: 12, gap: 6 }}>
           <Text style={{ fontSize: 11, color: tk.text3, textAlign: 'center', lineHeight: 16 }}>
             {isEn
               ? 'Subscriptions renew automatically. Cancel anytime in settings.'
               : 'Подписка продлевается автоматически. Отменить можно в настройках.'}
           </Text>
-          <TouchableOpacity 
-            onPress={async () => {
-              const result = await restorePurchases(lang, myId);
-              if (result && result.plan !== 'free') {
-                const sub = await activatePlan(myId, result.plan as any);
-                onPlanChange(sub);
-              }
-            }}
-            style={{ alignItems: 'center', paddingVertical: 4 }}>
-            <Text style={{ fontSize: 11, color: tk.text3,
-              textDecorationLine: 'underline' }}>
-              {(lang === 'en' ? 'Restore purchases' : 'Восстановить покупки')}
-            </Text>
-          </TouchableOpacity>
         </View>
 
       </ScrollView>

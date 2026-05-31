@@ -16,7 +16,7 @@ import Svg, { Path } from 'react-native-svg';
 import {
   View, Text, TextInput, TouchableOpacity,
   KeyboardAvoidingView, Platform, ScrollView,
-  ActivityIndicator, Alert,
+  ActivityIndicator, Alert, Keyboard,
   Linking,
 } from 'react-native';
 import {
@@ -93,6 +93,7 @@ export default function AuthScreen({ tk, lang = 'ru', onSuccess, onGuest }: Prop
   const [email,    setEmail]    = useState('');
   const [password, setPassword] = useState('');
   const [loading,  setLoading]  = useState(false);
+  const [emailError, setEmailError] = useState('');
   const isEn = lang === 'en';
   const L = (ru: string, en: string, uk?: string, be?: string, kk?: string) =>
     lang==='en' ? en : lang==='uk' ? (uk||ru) : lang==='be' ? (be||ru) : lang==='kk' ? (kk||ru) : ru;
@@ -138,11 +139,14 @@ export default function AuthScreen({ tk, lang = 'ru', onSuccess, onGuest }: Prop
 
 
   const submit = async () => {
-    // ВАЖНО: пароль НЕ триммим — пробелы в начале/конце могут быть
-    // частью пароля; trim() сделает рег. и логин неконсистентными
-    // и сломает аккаунты, у которых пароль реально с пробелом.
-    if (!email.trim() || !password) {
+    setEmailError('');
+    if (!email.trim() || !password.trim()) {
       Alert.alert('Ошибка', 'Заполните все поля'); return;
+    }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email.trim())) {
+      setEmailError(isEn ? 'Enter a valid email' : 'Введите корректный email');
+      return;
     }
     if (tab === 'reg' && !name.trim()) {
       Alert.alert('Ошибка', 'Введите имя'); return;
@@ -152,15 +156,16 @@ export default function AuthScreen({ tk, lang = 'ru', onSuccess, onGuest }: Prop
       let uid = '';
       let displayName = name.trim();
       if (tab === 'reg') {
-        const cred = await createUserWithEmailAndPassword(auth, email.trim(), password);
+        const cred = await createUserWithEmailAndPassword(auth, email.trim(), password.trim());
         await updateProfile(cred.user, { displayName });
         uid = cred.user.uid;
       } else {
-        const cred = await signInWithEmailAndPassword(auth, email.trim(), password);
+        const cred = await signInWithEmailAndPassword(auth, email.trim(), password.trim());
         uid = cred.user.uid;
         displayName = cred.user.displayName || email.split('@')[0];
       }
       await Storage.saveName(displayName);
+      Keyboard.dismiss();
       onSuccess(uid, displayName, tab === 'reg');
     } catch (e: any) {
       const msg = e.code === 'auth/user-not-found' ? 'Пользователь не найден'
@@ -220,7 +225,10 @@ export default function AuthScreen({ tk, lang = 'ru', onSuccess, onGuest }: Prop
           {tab === 'reg' && (
             <Field label="Имя" value={name} onChange={setName} placeholder="Иван" tk={tk} />
           )}
-          <Field label="Email" value={email} onChange={setEmail} placeholder="ivan@gmail.com" tk={tk} />
+          <Field label="Email" value={email} onChange={v => { setEmail(v); setEmailError(''); }} placeholder="ivan@gmail.com" tk={tk} />
+          {!!emailError && (
+            <Text style={{ fontSize: 11, color: '#ef4444', marginTop: -10, marginBottom: 10, marginLeft: 2 }}>{emailError}</Text>
+          )}
           <Field label="Пароль" value={password} onChange={setPassword} placeholder="••••••••" secure tk={tk} />
 
           {tab === 'login' && (

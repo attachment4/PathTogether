@@ -39,7 +39,7 @@ import OnboardingScreen   from './src/screens/OnboardingScreen';
 import SettingsScreen    from './src/screens/SettingsScreen';
 import PaywallScreen     from './src/screens/PaywallScreen';
 import {
-  Subscription, loadSubscription, canInvite, canAddMember, PLAN_LIMITS,
+  Subscription, loadSubscription, canInvite, canAddMember, PLAN_LIMITS, saveRegisteredAt,
 } from './src/subscription';
 
 
@@ -449,6 +449,7 @@ export default function App() {
   const [lang,        setLang]        = useState('ru');
   const [invLink,     setInvLink]     = useState('');
   const prevInviteScreen = useRef<Screen>('friends');
+  const [statsTab, setStatsTab] = useState<'me'|'partner'>('me');
   const [detailH,     setDetailH]     = useState<Habit|null>(null);
   const [editH,       setEditH]       = useState<Habit|null>(null);
   const [showTimePicker, setShowTimePicker] = useState(false);
@@ -581,7 +582,10 @@ export default function App() {
           // Загружаем данные из локального кэша Firestore
           const session = await Storage.loadUserSession(lastUid);
           if (!session.onbDone) { setScreen('onboarding'); return; }
-          if (session.spaceId) startSubs(session.spaceId);
+          if (session.spaceId) {
+            setSpace({ id: session.spaceId, habits: [], logs: {}, members: [] });
+            startSubs(session.spaceId);
+          }
           setScreen('today');
         } else {
           // Новый юзер без кэша — показываем экран входа
@@ -625,7 +629,10 @@ export default function App() {
       setThemeLoaded(true);
       setAuthChecked(true);
       if (!session.onbDone) { setScreen('onboarding'); return; }
-      if (session.spaceId) startSubs(session.spaceId);
+      if (session.spaceId) {
+        setSpace({ id: session.spaceId, habits: [], logs: {}, members: [] });
+        startSubs(session.spaceId);
+      }
       setScreen('today');
       // Подписка — в фоне
       loadSubscription(user.uid).then(sub => {
@@ -652,56 +659,71 @@ export default function App() {
   const stopSubs = () => { unsubH.current?.(); unsubH.current=null; unsubL.current?.(); unsubL.current=null; unsubM.current?.(); unsubM.current=null; };
   const startSubs = (sid:string) => {
     stopSubs();
-    setSpace(p => p?.id===sid ? p : {id:sid,habits:[],logs:{},members:[]});
-    // Если то же пространство — не сбрасываем данные (они придут через listener)
+    // НЕ вызываем setSpace здесь — doJoin уже установил чистый стейт,
+    // а при обычном старте state будет обновлён первым снапшотом от Firestore.
+    // Это устраняет race condition между setSpace({empty}) и первым снапшотом.
+
     unsubH.current = Storage.subscribeHabits(sid, habits => {
-      setSpace(p=>p?{...p,habits}:{id:sid,habits,logs:{},members:[]});
-      // Перепланируем уведомления привычек при каждом обновлении
-      const hp = (space?.members?.length ?? 0) > 1;
-      scheduleHabitNotifications(habits, hp, notifEnabled).catch(()=>{});
+      try {
+        setSpace(p => {
+          if (!p || p.id !== sid) return p; // игнорируем данные не от текущего space
+          return {...p, habits: Array.isArray(habits) ? habits : []};
+        });
+        // Уведомления планируем асинхронно, не в теле setState
+        setTimeout(() => {
+          scheduleHabitNotifications(habits || [], false, notifEnabled).catch(()=>{});
+        }, 0);
+      } catch (e) { console.warn('[startSubs] habits cb', e); }
     });
-    // prevLogsRef хранит последнее известное состояние логов ВНЕ setState
-    // чтобы отличить изменения партнёра от собственных записей
+
     const prevLogsRef = { current: {} as Record<string,boolean> };
 
     unsubL.current = Storage.subscribeLogs(sid, (newLogs) => {
-      // Сравниваем с prevLogsRef — новые ключи только от партнёра
-      const today = new Date().toISOString().split('T')[0];
-      setSpace(prev => {
-        if (!prev) {
-          prevLogsRef.current = newLogs;
-          return {id:sid,habits:[],logs:newLogs,members:[]};
-        }
-        const partner = prev.members.find(m => m.id !== myId);
-        if (partner && partnerNotif) {
-          Object.keys(newLogs).forEach(key => {
-            // Ключ формат: habitId_date_userId
-            // Строго проверяем что ключ заканчивается на _today_partnerId
-            const expectedSuffix = `_${today}_${partner.id}`;
-            if (!prevLogsRef.current[key] && key.endsWith(expectedSuffix)) {
-              const hid = key.replace(expectedSuffix, '');
-              const habit = prev.habits.find(h => h.id === hid);
-              if (habit) {
-                notifyPartnerDone(partner.name, habit.name).catch(()=>{});
-                requestPartnerNotification({
-                  fromUid: myId, fromName: myName,
-                  toUid: partner.id, habitName: habit.name,
-                  spaceId: space?.id || '',
-                }).catch(()=>{});
-              }
+      try {
+        const safeNewLogs = newLogs && typeof newLogs === 'object' ? newLogs : {};
+        const today = new Date().toISOString().split('T')[0];
+        setSpace(prev => {
+          if (!prev || prev.id !== sid) return prev;
+          // Уведомления партнёра — только если оба участника загружены
+          if (prev.members.length > 1 && partnerNotif) {
+            const partner = prev.members.find(m => m.id !== myId);
+            if (partner) {
+              setTimeout(() => {
+                Object.keys(safeNewLogs).forEach(key => {
+                  const expectedSuffix = `_${today}_${partner.id}`;
+                  if (!prevLogsRef.current[key] && key.endsWith(expectedSuffix)) {
+                    const hid = key.replace(expectedSuffix, '');
+                    const habit = prev.habits.find(h => h.id === hid);
+                    if (habit) {
+                      notifyPartnerDone(partner.name, habit.name).catch(()=>{});
+                      requestPartnerNotification().catch(()=>{});
+                    }
+                  }
+                });
+                prevLogsRef.current = safeNewLogs;
+              }, 0);
             }
-          });
-        }
-        prevLogsRef.current = newLogs;
-        return {...prev, logs: newLogs};
-      });
+          } else {
+            prevLogsRef.current = safeNewLogs;
+          }
+          return {...prev, logs: safeNewLogs};
+        });
+      } catch (e) { console.warn('[startSubs] logs cb', e); }
     });
+
     unsubM.current = Storage.subscribeMembers(sid, members => {
-      setSpace(p => p ? {...p, members} : {id:sid,habits:[],logs:{},members});
-      const hasPartnerNow = members.length > 1;
-      // Перепланируем уведомления при изменении состава (пришёл/ушёл партнёр)
-      scheduleAppReminder(hasPartnerNow, notifEnabled).catch(()=>{});
-      scheduleMorningMotivation(hasPartnerNow, notifEnabled).catch(()=>{});
+      try {
+        const safeMembers = Array.isArray(members) ? members : [];
+        setSpace(p => {
+          if (!p || p.id !== sid) return p;
+          return {...p, members: safeMembers};
+        });
+        setTimeout(() => {
+          const hasPartnerNow = safeMembers.length > 1;
+          scheduleAppReminder(hasPartnerNow, notifEnabled).catch(()=>{});
+          scheduleMorningMotivation(hasPartnerNow, notifEnabled).catch(()=>{});
+        }, 0);
+      } catch (e) { console.warn('[startSubs] members cb', e); }
     });
   };
 
@@ -754,8 +776,10 @@ export default function App() {
       Storage.setMeta(sid,{name:'PathTogether'}),
       Storage.saveCurrentSpace(sid),
     ]);
+    const newSpace = {id:sid,habits:[],logs:{},members};
+    setSpace(newSpace);
     startSubs(sid);
-    return {id:sid,habits:[],logs:{},members};
+    return newSpace;
   };
 
   const saveH = async (h:Habit[],sid?:string) => {
@@ -939,40 +963,36 @@ export default function App() {
   };
 
   const doJoin = async (code:string) => {
-    // Принимающий НЕ должен иметь подписку — платит тот, кто создаёт пространство (хост).
-    // Лимит участников определяется планом ХОСТА, проверяется внутри транзакции.
     if (!myId || myId === 'guest') {
       toast$(isEn ? 'Please sign in first' : 'Сначала войдите в аккаунт', false);
       return;
     }
+    // Показываем лоадер сразу
+    setLoading(true);
+    setPendInv(null); // закрываем модал сразу, чтобы не висел поверх лоадера
     try {
       const inv = await Storage.getInvite(code);
-      if (!inv) { toast$(isEn ? 'Invalid link' : 'Ссылка недействительна', false); return; }
-      // Проверяем не истёк ли инвайт (7 дней)
+      if (!inv) {
+        toast$(isEn ? 'Invalid link' : 'Ссылка недействительна', false);
+        return;
+      }
       if ((inv as any).expiresAt && (inv as any).expiresAt < Date.now()) {
         toast$(isEn ? 'Invite link has expired' : 'Ссылка приглашения истекла', false);
         return;
       }
-      if (space?.id === inv.spaceId) { toast$(isEn ? 'Already here' : 'Уже здесь', false); return; }
+      if (space?.id === inv.spaceId) {
+        toast$(isEn ? 'You are already in this space' : 'Вы уже в этом пространстве', false);
+        return;
+      }
 
       const membersRef = doc(db, 'spaces', inv.spaceId, 'data', 'members');
-
-      // Лимит участников хоста берём из САМОГО инвайта.
-      // Правила Firestore не позволяют присоединяющемуся читать users/{host}
-      // (можно читать только свой профиль), поэтому раньше транзакция падала
-      // с permission-denied и присоединиться было невозможно.
-      // Для старых инвайтов без поля hostMax используем большой дефолт,
-      // чтобы не блокировать вход (инвайт всё равно мог создать только платный хост).
       const hostMax = typeof (inv as any).hostMax === 'number' ? (inv as any).hostMax : 99;
 
       await runTransaction(db, async tx => {
-        // Читаем только members — атомарно, без race condition
         const membSnap = await tx.get(membersRef);
-
         const cur: Member[] = membSnap.exists() ? (membSnap.data().v || []) : [];
         if (cur.find(m => m.id === myId)) return; // уже участник
         if (cur.length >= hostMax) throw new Error('LIMIT_REACHED');
-
         const updated = [...cur, { id: myId, name: myName, role: 'member' as const, joined: todayS() }];
         tx.set(membersRef, {
           v: updated,
@@ -981,26 +1001,45 @@ export default function App() {
         });
       });
 
-      // Удаляем себя из СТАРОГО пространства (чтобы не быть в двух сразу)
+      // Выходим из старого пространства
       if (space?.id && space.id !== inv.spaceId) {
         const oldMembers = (space.members || []).filter(m => m.id !== myId);
-        Storage.setMembers(space.id, oldMembers).catch(e => console.warn('[doJoin] leave old space', e));
+        Storage.setMembers(space.id, oldMembers).catch(() => {});
       }
 
       await Storage.saveCurrentSpace(inv.spaceId, myId);
+
+      // Сначала сбрасываем стейт чисто, только потом подключаем подписки
+      // Это предотвращает крэш от одновременных setSpace из нескольких подписок
+      setSpace({ id: inv.spaceId, habits: [], logs: {}, members: [] });
+      await new Promise(r => setTimeout(r, 50)); // даём React смыть рендер
       startSubs(inv.spaceId);
-      setPendInv(null);
-      // Инвайт НЕ удаляем — он действует 7 дней, чтобы QR можно было давать нескольким людям
-      toast$(isEn ? 'Joined! ' : 'Присоединились! ');
+
+      // Навигируем на экран Friends чтобы пользователь увидел результат
+      animateScreenChange('friends');
+
+      // Показываем Alert — он точно не потеряется в отличие от тоста
+      setTimeout(() => {
+        Alert.alert(
+          isEn ? '🎉 Joined!' : '🎉 Присоединился!',
+          isEn
+            ? 'You are now tracking habits together!'
+            : 'Теперь вы вместе отслеживаете привычки!',
+          [{ text: isEn ? 'Great!' : 'Отлично!', style: 'default' }]
+        );
+      }, 600);
+
     } catch (e: any) {
       if (e?.message === 'LIMIT_REACHED') {
-        toast$((lang === 'en'
+        toast$(isEn
           ? 'Space is full — host needs to upgrade their plan'
-          : 'Пространство заполнено — хосту нужно улучшить тариф'), false);
+          : 'Пространство заполнено — хосту нужно улучшить тариф', false);
       } else {
         console.warn('[doJoin]', e);
         toast$(isEn ? 'Error joining space' : 'Ошибка при входе', false);
       }
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -1090,13 +1129,19 @@ export default function App() {
             await Storage.clearSpaceId(uid);
             await Storage.set(`onboarding_${uid}`, null);
             setSpace(null);
+            saveRegisteredAt(uid).catch(()=>{});
+            Keyboard.dismiss();
             setScreen('onboarding');
             return;
           }
           // Существующий пользователь — загружаем только его данные из Firestore
           const session = await Storage.loadUserSession(uid);
           if (!session.onbDone) { setScreen('onboarding'); return; }
-          if (session.spaceId) startSubs(session.spaceId);
+          if (session.spaceId) {
+            setSpace({ id: session.spaceId, habits: [], logs: {}, members: [] });
+            startSubs(session.spaceId);
+          }
+          Keyboard.dismiss();
           setScreen('today');
           loadSubscription(uid).then(sub => {
             setSubscription(sub);
@@ -1275,6 +1320,8 @@ export default function App() {
         maxStreak={maxStreak}
         totalDone={Object.keys(logs).filter(k=>k.includes(`_${myId}`)).length}
         plan={subscription.plan}
+        statsTab={statsTab}
+        onStatsTabChange={setStatsTab}
         onBack={()=>setScreen('profile')}/>
     </View>
   );
@@ -1704,6 +1751,7 @@ export default function App() {
           </TouchableOpacity>
         </View>
       </ScrollView>
+      {!isOnline&&<View style={{position:'absolute',top:TOP,left:0,right:0,backgroundColor:'#e53e3e',paddingHorizontal:16,paddingVertical:8,flexDirection:'row',alignItems:'center',justifyContent:'center',zIndex:999}}><Text style={{color:'#fff',fontSize:12,fontWeight:'600'}}>{isEn?'No internet connection':'Нет подключения к интернету'}</Text></View>}
       {toast&&<Toast msg={toast.msg} ok={toast.ok} tk={tk}/>}
     </View>
     );

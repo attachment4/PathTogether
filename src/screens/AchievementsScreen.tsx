@@ -853,9 +853,11 @@ function AchUnlockModal({ ach, tk, isEn, lang, onClose }: {
 
   if (!ach) return null;
   return (
-    <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
-      alignItems: 'center', justifyContent: 'center', zIndex: 100 }}
-      pointerEvents="box-none">
+    <TouchableOpacity
+      style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+        alignItems: 'center', justifyContent: 'center', zIndex: 100 }}
+      activeOpacity={1}
+      onPress={onClose}>
       <Animated.View style={{ opacity, transform: [{ scale }],
         backgroundColor: tk.bg2, borderRadius: 20, borderWidth: 1.5,
         borderColor: tk.text, padding: 28, alignItems: 'center', gap: 12,
@@ -870,7 +872,7 @@ function AchUnlockModal({ ach, tk, isEn, lang, onClose }: {
         <Text style={{ fontSize: 18, fontWeight: '500', color: tk.text }}>{isEn ? ach.label_en : ach.label_uk && lang==='uk' ? ach.label_uk : ach.label_be && lang==='be' ? ach.label_be : ach.label_kk && lang==='kk' ? ach.label_kk : ach.label_ru}</Text>
         <Text style={{ fontSize: 12, color: tk.text3, textAlign: 'center' }}>{isEn ? ach.desc_en : ach.desc_uk && lang==='uk' ? ach.desc_uk : ach.desc_be && lang==='be' ? ach.desc_be : ach.desc_kk && lang==='kk' ? ach.desc_kk : ach.desc_ru}</Text>
       </Animated.View>
-    </View>
+    </TouchableOpacity>
   );
 }
 
@@ -885,10 +887,17 @@ export default function AchievementsScreen({
   const [searchQ, setSearchQ] = useState('');
   const prevDone = useRef(new Set<string>());
   const allAchs = buildAchievements({ habitCount, totalDone, maxStreak, friendCount, partnerTotalDone });
+  const q = searchQ.toLowerCase();
   const achs = searchQ
-    ? allAchs.filter(a => 
-        (a.title||'').toLowerCase().includes(searchQ.toLowerCase()) ||
-        (a.desc||'').toLowerCase().includes(searchQ.toLowerCase()))
+    ? allAchs.filter(a => {
+        const matchesSearch =
+          a.label_ru.toLowerCase().includes(q) ||
+          a.label_en.toLowerCase().includes(q) ||
+          a.desc_ru.toLowerCase().includes(q) ||
+          a.desc_en.toLowerCase().includes(q);
+        const matchesTab = activeTab === 'all' || a.category === activeTab;
+        return matchesSearch && matchesTab;
+      })
     : allAchs;
   
   useEffect(() => {

@@ -124,7 +124,7 @@ function Illo2({ tk }: { tk: Theme }) {
               <Text style={{ fontSize: 11, color: tk.text3 }}>{u.pct}</Text>
             </View>
             <View style={{ height: 3, backgroundColor: tk.border, borderRadius: 2 }}>
-              <View style={{ height: 3, width: u.pct,
+              <View style={{ height: 3, width: typeof u.pct === 'string' ? parseInt(u.pct) : u.pct,
                 backgroundColor: u.done ? tk.text : tk.text3, borderRadius: 2 }} />
             </View>
           </View>
@@ -460,6 +460,9 @@ export default function OnboardingScreen({ tk, lang = 'ru', onDone }: Props) {
         borderTopWidth: 0.5, borderTopColor: tk.border,
       }}>
         {/* Точки */}
+        <Text style={{ fontSize: 11, color: tk.text3, textAlign: 'center', marginBottom: 8 }}>
+          {cur + 1} / {SLIDES.length}
+        </Text>
         <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 4, marginBottom: 14 }}>
           {SLIDES.map((_, i) => (
             <View key={i} style={{

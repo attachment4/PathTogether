@@ -21,7 +21,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { doc, getDoc, setDoc, runTransaction } from 'firebase/firestore';
 import { db } from './firebase';
 
-export type Plan = 'free' | 'duo' | 'team' | 'admin';
+export type Plan = 'free' | 'duo' | 'team' | 'admin' | 'trial';
 
 export interface Subscription {
   plan: Plan;
@@ -42,6 +42,7 @@ const HARDCODED_ADMINS: string[] = [
 const EARLY_BIRD_LIMIT = 10;
 const EARLY_BIRD_DAYS  = 14;
 const LOCAL_KEY        = 'pt_subscription';
+const TRIAL_DAYS       = 3;
 
 // ── Лимиты по планам ─────────────────────────────────────────────────────────
 export const PLAN_LIMITS: Record<Plan, {
@@ -78,6 +79,12 @@ export const PLAN_LIMITS: Record<Plan, {
     canSeePartnerProgress: true, canJointAchievements: true,
     label_ru: 'Admin', label_en: 'Admin',
     price_ru: '∞', price_en: '∞', color: '#444444',
+  },
+  trial: {
+    maxMembers: 2, canInvite: true,
+    canSeePartnerProgress: true, canJointAchievements: true,
+    label_ru: 'Пробный период', label_en: 'Trial',
+    price_ru: '3 дня бесплатно', price_en: '3 days free', color: '#7c3aed',
   },
 };
 
@@ -145,30 +152,34 @@ export async function loadSubscription(uid: string): Promise<Subscription> {
     }
   } catch {}
 
-  // 3. Проверяем early bird (новый юзер)
+  // 3. Проверяем trial (новый юзер без платного плана)
+  if (!cloudSub.plan) {
+    try {
+      const userSnap = await getDoc(doc(db, 'users', uid));
+      if (userSnap.exists()) {
+        const registeredAt: number | undefined = userSnap.data()?.registeredAt;
+        if (registeredAt && Date.now() - registeredAt < TRIAL_DAYS * 24 * 60 * 60 * 1000) {
+          cloudSub = {
+            plan: 'trial',
+            expiresAt: registeredAt + TRIAL_DAYS * 24 * 60 * 60 * 1000,
+            purchasedAt: null,
+          };
+        }
+      }
+    } catch {}
+  }
+
+  // 4. Проверяем early bird (новый юзер)
   const isEarlyBird = await checkIsEarlyBird(uid);
 
-  // 4. Строим итоговый объект
+  // 5. Строим итоговый объект
   let plan: Plan = (cloudSub.plan as Plan) || 'free';
   let expiresAt = cloudSub.expiresAt || null;
   let purchasedAt = cloudSub.purchasedAt || null;
 
-  // Early bird — автоматически Team на 14 дней при первой регистрации
-  if (!isEarlyBird && !cloudSub.plan) {
-    const gotEarlyBird = await tryRegisterEarlyBird(uid);
-    if (gotEarlyBird) {
-      const now = Date.now();
-      plan = 'team';
-      expiresAt = now + EARLY_BIRD_DAYS * 24 * 60 * 60 * 1000;
-      purchasedAt = now;
-      // Сохраняем в Firestore
-      try {
-        await setDoc(doc(db, 'users', uid), {
-          plan, planExpiresAt: expiresAt, planPurchasedAt: purchasedAt,
-          isEarlyBird: true,
-        }, { merge: true });
-      } catch {}
-    }
+  // Early bird — проверка (запись через Cloud Function на сервере)
+  if (!isEarlyBird && !cloudSub.plan && plan === 'free') {
+    await tryRegisterEarlyBird(uid);
   }
 
   // 5. Проверяем не истекла ли
@@ -255,4 +266,17 @@ async function _saveLocal(uid: string, sub: Subscription): Promise<void> {
 function _defaultSub(): Subscription {
   return { plan: 'free', expiresAt: null, purchasedAt: null,
     isActive: true, isAdmin: false, isEarlyBird: false };
+}
+
+// ── Trial helpers ─────────────────────────────────────────────────────────────
+export function isTrialActive(sub: Subscription): boolean {
+  return sub.plan === 'trial' && sub.isActive;
+}
+
+export async function saveRegisteredAt(uid: string): Promise<void> {
+  try {
+    const snap = await getDoc(doc(db, 'users', uid));
+    if (snap.exists() && snap.data()?.registeredAt) return;
+    await setDoc(doc(db, 'users', uid), { registeredAt: Date.now() }, { merge: true });
+  } catch {}
 }

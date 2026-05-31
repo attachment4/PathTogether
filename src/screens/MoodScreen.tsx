@@ -206,7 +206,7 @@ export default function MoodScreen({ myId, lang, tk, onBack }: Props) {
               {isEn ? 'History' : 'История'}
             </Text>
 
-            {history.slice(0, 7).map(e => {
+            {history.slice(0, 14).map(e => {
               const m = MOODS.find(x => x.val === e.mood)!;
               const d = new Date(e.date + 'T12:00:00');
               const dateStr = isEn
