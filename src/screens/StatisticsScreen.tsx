@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, BackHandler, Animated, Dimensions } from 'react-native';
 import Svg, { Path, Circle } from 'react-native-svg';
 import { Theme } from '../theme';
@@ -133,6 +133,33 @@ export default function StatisticsScreen({
 
   const now = new Date();
   const todayStr = now.toISOString().split('T')[0];
+
+  // Считаем totalDone и maxStreak — useMemo чтобы не пересчитывать при каждом рендере
+  const computedTotalDone = useMemo(
+    () => Object.keys(logs).filter(k => k.endsWith(`_${statsUserId}`)).length,
+    [logs, statsUserId]
+  );
+
+  const computedMaxStreak = useMemo(() => {
+    if (!habits.length) return 0;
+    let best = 0;
+    const dates: string[] = [];
+    for (let i = 0; i < 365; i++) {
+      const d = new Date(now); d.setDate(d.getDate() - i);
+      dates.push(d.toISOString().split('T')[0]);
+    }
+    habits.forEach(h => {
+      let cur = 0;
+      for (const ds of dates) {
+        const d = new Date(ds + 'T12:00:00');
+        const dow = (d.getDay() + 6) % 7;
+        if (!h.days?.includes(dow)) continue;
+        if (logs[`${h.id}_${ds}_${statsUserId}`]) { cur++; if (cur > best) best = cur; }
+        else cur = 0;
+      }
+    });
+    return best;
+  }, [habits, logs, statsUserId]);
 
   //  Вычисляем статистику 
   // Привычки на сегодня
@@ -305,11 +332,11 @@ export default function StatisticsScreen({
           </Text>
         </FadeIn>
         <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8 }}>
-          <StatCard value={` ${maxStreak}`}
+          <StatCard value={` ${computedMaxStreak}`}
             label={(lang === 'en' ? 'Best streak' : 'Лучшая серия')}
             sub={(lang === 'en' ? 'days in a row' : 'дней подряд')}
             color={tk.text2} delay={100} tk={tk} />
-          <StatCard value={totalDone.toString()}
+          <StatCard value={computedTotalDone.toString()}
             label={(lang === 'en' ? 'All time done' : 'Всего выполнено')}
             sub={(lang === 'en' ? 'completions' : 'выполнений')}
             color={tk.text} delay={140} tk={tk} />
@@ -365,7 +392,7 @@ export default function StatisticsScreen({
               <Ring pct={overall30Pct} color={tk.text}
                 size={76} stroke={7}
                 label={(lang === 'en' ? '30 days' : '30 дней')} tk={tk} />
-              <Ring pct={completedDays / 30} color={tk.text}
+              <Ring pct={Math.min(completedDays / 30, 1)} color={tk.text}
                 size={76} stroke={7}
                 label={(lang === 'en' ? 'Perfect' : 'Идеальных')} tk={tk} />
               <Ring pct={habits.length ? Math.min(habitStats[0]?.count / 30, 1) : 0}
@@ -419,15 +446,15 @@ export default function StatisticsScreen({
               </Text>
               <View style={{ gap: 6 }}>
                 {skippedHabits.filter(h => h.missed > 0 && h.scheduled >= 3 && h.pct < 0.7).sort((a,b) => a.pct - b.pct).slice(0, 4).map(h => (
-                  <View key={h.id} style={{ backgroundColor: 'rgba(239,68,68,0.06)',
+                  <View key={h.id} style={{ backgroundColor: tk.bg2,
                     borderRadius: 14, padding: 12, flexDirection: 'row', alignItems: 'center',
-                    gap: 10, borderWidth: 1, borderColor: 'rgba(239,68,68,0.12)' }}>
+                    gap: 10, borderWidth: 1, borderColor: tk.border }}>
                     <View style={{ flex: 1, gap: 4 }}>
                       <Text style={{ fontSize: 13, fontWeight: '600', color: tk.text }}>{h.name}</Text>
                       {h.scheduled > 0 && (
                         <View style={{ backgroundColor: tk.border, borderRadius: 3, height: 3, marginBottom: 1 }}>
                           <View style={{ width: `${Math.round((h.done/h.scheduled)*100)}%`, height: 3,
-                            borderRadius: 3, backgroundColor: 'rgba(239,68,68,0.5)' }} />
+                            borderRadius: 3, backgroundColor: tk.text2 }} />
                         </View>
                       )}
                       <Text style={{ fontSize: 10, color: tk.text3 }}>
@@ -550,7 +577,7 @@ export default function StatisticsScreen({
                   <Text style={{ fontSize: 11, color: tk.text3, width: 24 }}>{dayLabel}</Text>
                   <View style={{ flex: 1, height: 6, backgroundColor: tk.border, borderRadius: 3 }}>
                     <View style={{ height: 6, width: `${pctNum}%` as any,
-                      backgroundColor: pct2 > 0.8 ? tk.text : pct2 > 0.4 ? tk.text2 : tk.text3,
+                      backgroundColor: pct2 > 0.8 ? tk.text : pct2 > 0.4 ? tk.text2 : tk.text2 + '88',
                       borderRadius: 3 }} />
                   </View>
                   <Text style={{ fontSize: 10, color: tk.text3, width: 32, textAlign: 'right' }}>
@@ -606,7 +633,7 @@ export default function StatisticsScreen({
                           aspectRatio: 1,
                           borderRadius: 2,
                           backgroundColor: bg,
-                          opacity: future ? 0.3 : 1,
+                          opacity: future ? 0.5 : 1,
                         }} />
                       );
                     })}

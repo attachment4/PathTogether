@@ -7,7 +7,14 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export interface Member { id:string; name:string; role:'owner'|'member'; joined:string; }
 export type HabitCategory = 'health' | 'sport' | 'mind' | 'work' | 'social' | 'habit';
-export interface Habit  { id:string; name:string; icon:string; color:string; days:number[]; time:string; desc?:string; ownerId:string; ownerName:string; createdAt:string; order?:number; target?:number; unit?:string; category?:HabitCategory; type?:'good'|'quit'; timerSeconds?:number; archived?:boolean; routine?:'morning'|'afternoon'|'evening'; noteEnabled?:boolean; }
+export interface Habit  { id:string; name:string; icon:string; color:string; days:number[]; time:string; desc?:string; ownerId:string; ownerName:string; createdAt:string; order?:number; target?:number; unit?:string; category?:HabitCategory; type?:'good'|'quit'; timerSeconds?:number; routine?:'morning'|'afternoon'|'evening'; noteEnabled?:boolean; isShared?:boolean; reminderInterval?:number; reminderFrom?:string; reminderTo?:string; requirePartnerConfirm?:boolean; }
+
+/** Подтверждение выполнения привычки партнёром */
+export interface HabitConfirmation { habitId:string; date:string; fromId:string; confirmedBy:string; ts:number; }
+
+/** Реакция партнёра на выполнение привычки */
+export interface HabitReaction { emoji: string; fromId: string; fromName: string; habitId: string; date: string; ts: number; }
+// emoji хранит ReactionKey ('heart' | 'fire' | ...) — не unicode эмодзи
 export interface MoodEntry { date: string; mood: 1|2|3|4|5; note?: string; uid: string; }
 
 export interface InviteData { spaceId:string; spaceName:string; creatorId:string; type?:'normal'|'love'; hostPlan?:string; hostMax?:number; }
@@ -190,12 +197,19 @@ export const Storage = {
         FS.getProfile(uid),
         new Promise<null>((_, rej) => setTimeout(() => rej(new Error('timeout')), 5000)),
       ]).catch(() => null);
-      // Обновляем per-user кеш
-      if (profile?.onboarding) await LS.set(onbKey, true);
-      else await LS.set(onbKey, false);
-      if (profile?.spaceId) await LS.set(cacheKey, profile.spaceId);
+      // Если Firestore недоступен — используем кеш (не перезаписываем его null-ом)
+      if (profile === null) {
+        const [localOnb, localSpace] = await Promise.all([
+          LS.get<boolean>(onbKey),
+          LS.get<string>(cacheKey),
+        ]);
+        return { onbDone: !!localOnb, spaceId: localSpace };
+      }
+      // Обновляем per-user кеш только при успешном ответе Firestore
+      await LS.set(onbKey, !!profile.onboarding);
+      if (profile.spaceId) await LS.set(cacheKey, profile.spaceId);
       else await LS.set(cacheKey, null);
-      return { onbDone: !!profile?.onboarding, spaceId: profile?.spaceId ?? null };
+      return { onbDone: !!profile.onboarding, spaceId: profile.spaceId ?? null };
     } catch (e) {
       console.warn('[Storage]', 'loadUserSession', e);
       // При ошибке сети — per-user кеш (НЕ глобальный space_id)
@@ -259,6 +273,9 @@ export const Storage = {
   },
   async setMeta(sid:string, meta:{name:string; type?:'normal'|'love'}) { await setDoc(doc(db,'spaces',sid,'data','meta'), meta); },
 
+  async deleteInvite(code:string) {
+    await deleteDoc(doc(db,'invites',code)).catch(()=>{});
+  },
   async setInvite(code:string, data:InviteData) {
     const uid = auth.currentUser?.uid;
     if (!uid) throw new Error('setInvite: not authenticated');
@@ -291,5 +308,73 @@ export const Storage = {
     return onSnapshot(doc(db,'spaces',sid,'data','meta'),
       snap => cb(snap.exists() ? snap.data() as any : null),
       e => console.warn(TAG, 'subscribeMeta', e));
+  },
+
+  // ── Подтверждения от партнёра ────────────────────────────────────────────
+  async saveConfirmation(sid: string, c: HabitConfirmation): Promise<void> {
+    const key = `${c.habitId}_${c.date}_confirm`;
+    await setDoc(doc(db,'spaces',sid,'confirmations',key), c);
+  },
+  subscribeConfirmations(sid:string, cb:(c:HabitConfirmation[])=>void): Unsubscribe {
+    return onSnapshot(collection(db,'spaces',sid,'confirmations'),
+      snap => cb(snap.docs.map(d => d.data() as HabitConfirmation)),
+      e => console.warn(TAG,'subscribeConfirmations',e));
+  },
+
+  // ── Настроение в пространстве (видно партнёру) ──────────────────────────
+  async saveMoodToSpace(sid: string, entry: MoodEntry): Promise<void> {
+    const key = `${entry.uid}_${entry.date}`;
+    await setDoc(doc(db, 'spaces', sid, 'moods', key), { ...entry, ts: Date.now() }).catch(() => {});
+  },
+  subscribeSpaceMoods(sid: string, cb: (moods: MoodEntry[]) => void): Unsubscribe {
+    return onSnapshot(collection(db, 'spaces', sid, 'moods'),
+      snap => cb(snap.docs.map(d => d.data() as MoodEntry)),
+      e => console.warn(TAG, 'subscribeSpaceMoods', e));
+  },
+
+  // ── Заметки в пространстве (видны партнёру) ─────────────────────────────
+  async saveHabitNoteToSpace(sid: string, uid: string, habitId: string, date: string, note: string): Promise<void> {
+    const key = `${habitId}_${date}_${uid}`;
+    if (note.trim()) {
+      await setDoc(doc(db, 'spaces', sid, 'habitNotes', key), { habitId, date, uid, note, ts: Date.now() });
+    } else {
+      await deleteDoc(doc(db, 'spaces', sid, 'habitNotes', key)).catch(() => {});
+    }
+  },
+  subscribeSpaceNotes(sid: string, cb: (notes: {habitId:string;date:string;uid:string;note:string}[]) => void): Unsubscribe {
+    return onSnapshot(collection(db, 'spaces', sid, 'habitNotes'),
+      snap => cb(snap.docs.map(d => d.data() as {habitId:string;date:string;uid:string;note:string})),
+      e => console.warn(TAG, 'subscribeSpaceNotes', e));
+  },
+
+  // ── Фото выполнения ──────────────────────────────────────────────────────
+  async saveHabitPhoto(sid:string, habitId:string, date:string, uid:string, photoUri:string): Promise<void> {
+    const key = `${habitId}_${date}_${uid}`;
+    await setDoc(doc(db,'spaces',sid,'photos',key), { habitId, date, uid, photoUri, ts: Date.now() });
+  },
+  subscribePhotos(sid:string, cb:(photos:any[])=>void): Unsubscribe {
+    return onSnapshot(collection(db,'spaces',sid,'photos'),
+      snap => cb(snap.docs.map(d => d.data())),
+      e => console.warn(TAG,'subscribePhotos',e));
+  },
+
+  // ── Реакции на привычки ──────────────────────────────────────────────────
+  async saveReaction(sid: string, r: HabitReaction): Promise<void> {
+    const key = `${r.habitId}_${r.date}_${r.fromId}`;
+    await setDoc(doc(db,'spaces',sid,'reactions',key), r);
+  },
+  async deleteReaction(sid: string, habitId: string, date: string, fromId: string): Promise<void> {
+    const key = `${habitId}_${date}_${fromId}`;
+    await deleteDoc(doc(db,'spaces',sid,'reactions',key));
+  },
+  subscribeReactions(
+    sid: string,
+    cb: (reactions: HabitReaction[]) => void,
+  ): Unsubscribe {
+    return onSnapshot(
+      collection(db,'spaces',sid,'reactions'),
+      snap => cb(snap.docs.map(d => d.data() as HabitReaction)),
+      e => console.warn(TAG, 'subscribeReactions', e),
+    );
   },
 };

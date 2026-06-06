@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { View, Platform, StatusBar, Text, ScrollView, TouchableOpacity, Modal } from 'react-native';
+import * as Haptics from 'expo-haptics';
+import { View, Platform, StatusBar, Text, ScrollView, TouchableOpacity, Modal, Image } from 'react-native';
 import { Theme, MONTHS_RU, MONTHS_EN, WD_RU, WD_EN } from '../theme';
 import { tr } from '../i18n';
 import Svg, { Path, Circle, Rect, Line } from 'react-native-svg';
@@ -55,12 +56,13 @@ interface Props {
   myId: string; lang: string; tk: Theme;
   habits: Habit[]; members: Member[]; logs: Record<string,boolean>;
   spaceId?: string;
+  photos?: any[];
   onToggleLog?: (hid: string, dateStr: string) => Promise<void>;
 }
 
 type ViewMode = 'month' | 'week';
 
-export default function CalendarScreen({ myId, lang, tk, habits, members, logs, spaceId, onToggleLog }: Props) {
+export default function CalendarScreen({ myId, lang, tk, habits, members, logs, spaceId, photos = [], onToggleLog }: Props) {
   const isEn = lang === 'en';
   const L = (ru: string, en: string, uk?: string, be?: string, kk?: string) =>
     lang==='en' ? en : lang==='uk' ? (uk||ru) : lang==='be' ? (be||ru) : lang==='kk' ? (kk||ru) : ru;
@@ -70,6 +72,7 @@ export default function CalendarScreen({ myId, lang, tk, habits, members, logs, 
   const [selDay, setSelDay] = useState<number | null>(now.getDate());
   const [viewMode, setViewMode] = useState<ViewMode>('month');
   const [editingLog, setEditingLog] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string|null>(null);
   // Локальный оптимистичный стейт логов — обновляется мгновенно, до Firestore
   const [localLogs, setLocalLogs] = useState<Record<string,boolean>>(logs);
 
@@ -88,8 +91,9 @@ export default function CalendarScreen({ myId, lang, tk, habits, members, logs, 
     try {
       await onToggleLog(hid, dateStr);
     } catch {
-      // При ошибке — откатываем
       setLocalLogs(logs);
+      setErrorMsg(isEn ? 'Failed to save, check connection' : 'Не удалось сохранить, проверьте соединение');
+      setTimeout(() => setErrorMsg(null), 4000);
     }
   };
 
@@ -317,7 +321,7 @@ export default function CalendarScreen({ myId, lang, tk, habits, members, logs, 
                     {selDay} {monthNames[month]}
                   </Text>
                   {isEditable(selDay) && (
-                    <TouchableOpacity onPress={() => setEditingLog(v => !v)}
+                    <TouchableOpacity onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(()=>{}); setEditingLog(v => !v); }}
                       style={{ paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8,
                         backgroundColor: editingLog ? tk.bg3 : 'transparent',
                         borderWidth: 1, borderColor: tk.border }}>
@@ -335,11 +339,11 @@ export default function CalendarScreen({ myId, lang, tk, habits, members, logs, 
                     <View style={{ width: 10, height: 10, borderRadius: 5,
                       backgroundColor: h.color && h.color !== '#f5f5f5' ? h.color : tk.border,
                       marginLeft: 2 }}/>
-                    <Text style={{ fontSize: 13, color: h.myDone ? tk.text3 : tk.text, flex: 1,
+                    <Text style={{ fontSize: 13, color: h.myDone ? tk.text2 : tk.text, flex: 1,
                       textDecorationLine: h.myDone ? 'line-through' : 'none' }}>{h.name}</Text>
                     <View style={{ width: 20, height: 20, borderRadius: 10,
-                      backgroundColor: h.myDone ? '#7c3aed' : 'transparent',
-                      borderWidth: 1.5, borderColor: h.myDone ? '#7c3aed' : tk.text2,
+                      backgroundColor: h.myDone ? tk.accent : 'transparent',
+                      borderWidth: 1.5, borderColor: h.myDone ? tk.accent : tk.text2,
                       alignItems: 'center', justifyContent: 'center' }}>
                       {h.myDone && (
                       <Svg width={11} height={11} viewBox="0 0 24 24" fill="none">
@@ -363,7 +367,7 @@ export default function CalendarScreen({ myId, lang, tk, habits, members, logs, 
                 {selDay} {(isEn ? ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'] : ['янв','фев','мар','апр','май','июн','июл','авг','сен','окт','ноя','дек'])[month]}
               </Text>
               {isEditable(selDay) && (
-                <TouchableOpacity onPress={() => setEditingLog(v => !v)}
+                <TouchableOpacity onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(()=>{}); setEditingLog(v => !v); }}
                   style={{ paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, backgroundColor: editingLog ? tk.text : tk.bg3, borderWidth: 1, borderColor: tk.border }}>
                   <Text style={{ fontSize: 11, color: editingLog ? tk.bg : tk.text2 }}>
                     {editingLog ? ((lang === 'en' ? 'Done' : 'Готово')) : ((lang === 'en' ? 'Edit' : 'Редактировать'))}
@@ -381,36 +385,53 @@ export default function CalendarScreen({ myId, lang, tk, habits, members, logs, 
                 </Text>
               </View>
             )}
-            {selHabits.map(h => (
-              <TouchableOpacity key={h.id}
-                onPress={() => editingLog && handleToggleLog(h.id, ds(selDay!))}
-                style={{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: 10, backgroundColor: tk.bg3, borderRadius: 10, marginBottom: 6 }}>
-                <View style={{ width: 10, height: 10, borderRadius: 5,
-                  backgroundColor: h.color && h.color !== '#f5f5f5' ? h.color : tk.border,
-                  marginLeft: 2 }}/>
-                <View style={{ flex: 1 }}>
-                  <Text style={{ fontSize: 13, color: h.myDone ? tk.text3 : tk.text, textDecorationLine: h.myDone ? 'line-through' : 'none' }}>{h.name}</Text>
-                  {partner && h.partDone !== null && (
-                    <Text style={{ fontSize: 10, color: tk.text3, marginTop: 2 }}>
-                      {partner.name}: {h.partDone ? '✓' : '—'}
-                    </Text>
+            {selHabits.map(h => {
+              const dateStr = ds(selDay!);
+              const dayPhotos = photos.filter(p => p.habitId === h.id && p.date === dateStr);
+              return (
+                <View key={h.id} style={{ marginBottom: 6 }}>
+                  <TouchableOpacity
+                    onPress={() => editingLog && handleToggleLog(h.id, dateStr)}
+                    style={{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: 10, backgroundColor: tk.bg3, borderRadius: 10 }}>
+                    <View style={{ width: 10, height: 10, borderRadius: 5,
+                      backgroundColor: h.color && h.color !== '#f5f5f5' ? h.color : tk.border,
+                      marginLeft: 2 }}/>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontSize: 13, color: h.myDone ? tk.text3 : tk.text, textDecorationLine: h.myDone ? 'line-through' : 'none' }}>{h.name}</Text>
+                      {partner && h.partDone !== null && (
+                        <Text style={{ fontSize: 10, color: tk.text3, marginTop: 2 }}>
+                          {partner.name}: {h.partDone ? '✓' : '—'}
+                        </Text>
+                      )}
+                    </View>
+                    <View style={{
+                      width: 22, height: 22, borderRadius: 11,
+                      backgroundColor: h.myDone ? tk.accent : 'transparent',
+                      borderWidth: 1.5, borderColor: h.myDone ? tk.accent : tk.text2,
+                      alignItems: 'center', justifyContent: 'center',
+                    }}>
+                      {h.myDone && (
+                        <Svg width={13} height={13} viewBox="0 0 24 24" fill="none">
+                          <Path d="M5 13l4 4L19 7" stroke={tk.bg} strokeWidth="2.5"
+                            strokeLinecap="round" strokeLinejoin="round"/>
+                        </Svg>
+                      )}
+                    </View>
+                  </TouchableOpacity>
+                  {dayPhotos.length > 0 && (
+                    <View style={{ flexDirection: 'row', gap: 6, paddingHorizontal: 10, paddingTop: 6, flexWrap: 'wrap' }}>
+                      {dayPhotos.map((p: any) => (
+                        <View key={p.uid} style={{ borderRadius: 8, overflow: 'hidden',
+                          borderWidth: 1, borderColor: tk.border }}>
+                          <Image source={{ uri: p.photoUri }}
+                            style={{ width: 72, height: 54 }} resizeMode="cover"/>
+                        </View>
+                      ))}
+                    </View>
                   )}
                 </View>
-                <View style={{
-                  width: 22, height: 22, borderRadius: 11,
-                  backgroundColor: h.myDone ? '#7c3aed' : 'transparent',
-                  borderWidth: 1.5, borderColor: h.myDone ? '#7c3aed' : tk.text2,
-                  alignItems: 'center', justifyContent: 'center',
-                }}>
-                  {h.myDone && (
-                    <Svg width={13} height={13} viewBox="0 0 24 24" fill="none">
-                      <Path d="M5 13l4 4L19 7" stroke={tk.bg} strokeWidth="2.5"
-                        strokeLinecap="round" strokeLinejoin="round"/>
-                    </Svg>
-                  )}
-                </View>
-              </TouchableOpacity>
-            ))}
+              );
+            })}
             {!isEditable(selDay) && isPast(selDay) && (
               <Text style={{ fontSize: 11, color: tk.text3, textAlign: 'center', marginTop: 4 }}>
                 {(lang === 'en' ? 'Cannot edit days older than 7 days' : 'Нельзя редактировать дни старше 7 дней')}
@@ -420,6 +441,13 @@ export default function CalendarScreen({ myId, lang, tk, habits, members, logs, 
         )}
 
       </ScrollView>
+      {errorMsg && (
+        <View style={{ position: 'absolute', bottom: 32, left: 20, right: 20,
+          backgroundColor: '#e05555', borderRadius: 12, padding: 12, alignItems: 'center',
+          shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 8, elevation: 8 }}>
+          <Text style={{ color: '#fff', fontSize: 13, fontWeight: '600' }}>{errorMsg}</Text>
+        </View>
+      )}
     </View>
   );
 }

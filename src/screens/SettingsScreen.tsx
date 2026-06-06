@@ -3,11 +3,12 @@ import {
   View, Text, ScrollView, TouchableOpacity,
   TextInput, Modal, Alert, Linking, Platform, StatusBar, Share,
 } from 'react-native';
-import Svg, { Path, Circle, Line } from 'react-native-svg';
+import Svg, { Path, Circle, Line, Rect } from 'react-native-svg';
 import { updatePassword, deleteUser } from 'firebase/auth';
 import { auth } from '../firebase';
 import { Theme } from '../theme';
 import { tr } from '../i18n';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Локализация
 // Notification scheduling is handled in App.tsx
@@ -41,7 +42,8 @@ function Icon({ name, color }: { name: string; color: string }) {
   if (name === 'users')    return <Svg {...p}><Path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" stroke={color} strokeWidth="1.7" strokeLinecap="round"/><Circle cx="9" cy="7" r="4" stroke={color} strokeWidth="1.7"/><Path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" stroke={color} strokeWidth="1.7" strokeLinecap="round"/></Svg>;
   if (name === 'message')  return <Svg {...p}><Path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" stroke={color} strokeWidth="1.7" strokeLinejoin="round"/></Svg>;
   if (name === 'file')     return <Svg {...p}><Path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke={color} strokeWidth="1.7" strokeLinejoin="round"/><Path d="M14 2v6h6M16 13H8M16 17H8M10 9H8" stroke={color} strokeWidth="1.7" strokeLinecap="round"/></Svg>;
-  if (name === 'trash')    return <Svg {...p}><Path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6" stroke={color} strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"/><Path d="M10 11v6M14 11v6" stroke={color} strokeWidth="1.7" strokeLinecap="round"/></Svg>;
+  if (name === 'trash')      return <Svg {...p}><Path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6" stroke={color} strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"/><Path d="M10 11v6M14 11v6" stroke={color} strokeWidth="1.7" strokeLinecap="round"/></Svg>;
+  if (name === 'smartphone') return <Svg {...p}><Rect x="5" y="2" width="14" height="20" rx="2" stroke={color} strokeWidth="1.7"/><Path d="M12 18h.01" stroke={color} strokeWidth="2" strokeLinecap="round"/></Svg>;
   return <Svg {...p}><Circle cx="12" cy="12" r="3" stroke={color} strokeWidth="1.7"/></Svg>;
 }
 
@@ -50,10 +52,10 @@ function Toggle({ value, onToggle, tk }: { value: boolean; onToggle: () => void;
   return (
     <TouchableOpacity onPress={onToggle}
       style={{ width: 46, height: 26, borderRadius: 13,
-        backgroundColor: value ? '#7c4dff' : tk.bg3,
+        backgroundColor: value ? tk.accent : tk.bg3,
         justifyContent: 'center', padding: 3 }}>
       <View style={{ width: 20, height: 20, borderRadius: 10,
-        backgroundColor: '#fff',
+        backgroundColor: tk.bg,
         alignSelf: value ? 'flex-end' : 'flex-start' }} />
     </TouchableOpacity>
   );
@@ -548,7 +550,7 @@ export default function SettingsScreen({
                     <Text style={{ fontSize: 22, color: tk.text }}>−</Text>
                   </TouchableOpacity>
                 </View>
-                <Text style={{ fontSize: 36, fontWeight: '700', color: tk.text3,
+                <Text style={{ fontSize: 36, fontWeight: '700', color: tk.text2,
                   marginBottom: 4 }}>:</Text>
                 {/* Минуты */}
                 <View style={{ alignItems: 'center', gap: 10 }}>

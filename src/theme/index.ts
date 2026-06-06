@@ -23,9 +23,9 @@ export interface Theme {
 }
 
 const dark: Theme = {
-  bg: '#0c0c0c', bg2: '#111111', bg3: '#181818',
-  border: '#1e1e1e', text: '#ffffff', text2: '#888888', text3: '#3a3a3a',
-  inp: '#111111',
+  bg: '#0c0c0c', bg2: '#151515', bg3: '#1e1e1e',
+  border: '#2c2c2c', text: '#ffffff', text2: '#c0c0c0', text3: '#aaaaaa',
+  inp: '#151515',
   accent: '#7c3aed',
   cardShadowColor:   '#000000',
   cardShadowOpacity: 0,
@@ -35,7 +35,7 @@ const dark: Theme = {
   glowOpacity:       0.15,
   glowRadius:        12,
   glowElevation:     0,
-  cardBorder: '#1e1e1e',
+  cardBorder: '#2c2c2c',
 };
 
 const light: Theme = {

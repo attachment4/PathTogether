@@ -4,7 +4,7 @@
     "slug": "pathtogether",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/icon_new.png",
     "scheme": "pathtogether",
     "splash": {
       "image": "./assets/splash.png",
@@ -13,11 +13,22 @@
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.attach4.pathtogether"
+      "bundleIdentifier": "com.attach4.pathtogether",
+      "infoPlist": {
+        "UIBackgroundModes": [
+          "remote-notification",
+          "fetch",
+          "remote-notification",
+          "fetch"
+        ]
+      },
+      "entitlements": {
+        "aps-environment": "production"
+      }
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
+        "foregroundImage": "./assets/icon_new.png",
         "backgroundColor": "#0a0a0a"
       },
       "package": "com.attach4.pathtogether",
@@ -27,7 +38,14 @@
         "android.permission.VIBRATE",
         "android.permission.POST_NOTIFICATIONS",
         "android.permission.USE_BIOMETRIC",
-        "android.permission.USE_FINGERPRINT"
+        "android.permission.USE_FINGERPRINT",
+        "android.permission.INTERNET",
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.VIBRATE",
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.USE_BIOMETRIC",
+        "android.permission.USE_FINGERPRINT",
+        "android.permission.RECORD_AUDIO"
       ],
       "intentFilters": [
         {
@@ -52,15 +70,47 @@
             "BROWSABLE",
             "DEFAULT"
           ]
+        },
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "attachment4.github.io",
+              "pathPrefix": "/PathTogether/invite.html"
+            },
+            {
+              "scheme": "https",
+              "host": "pathtogether.app",
+              "pathPrefix": "/invite"
+            },
+            {
+              "scheme": "pathtogether"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
         }
       ],
-      "versionCode": 1,
+      "versionCode": 4,
       "minSdkVersion": 23,
       "softwareKeyboardLayoutMode": "pan",
       "googleServicesFile": "./google-services.json"
     },
     "plugins": [
       "expo-font",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon_new.png",
+          "color": "#0a0a0a",
+          "defaultChannel": "partner",
+          "sounds": []
+        }
+      ],
       [
         "expo-image-picker",
         {
@@ -73,14 +123,20 @@
     ],
     "extra": {
       "eas": {
-        "projectId": "0c7443d1-7507-4da9-ad5c-0dd271227268"
+        "projectId": "9eb18cbf-9bd3-49e1-b098-b71b0f717b55"
       },
       "rustore": true
     },
-    "owner": "pathtogether44atm",
+    "owner": "attach",
     "description": "Отслеживай привычки вместе с партнёром",
     "sdkVersion": "54.0.0",
     "newArchEnabled": false,
-    "experiments": {}
+    "experiments": {},
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/9eb18cbf-9bd3-49e1-b098-b71b0f717b55"
+    }
   }
 }

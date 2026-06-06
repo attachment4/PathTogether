@@ -40,7 +40,8 @@ service cloud.firestore {
     }
 
     match /users/{uid} {
-      allow read, write: if isAuthed() && request.auth.uid == uid;
+      allow read:  if isAuthed();
+      allow write: if isAuthed() && request.auth.uid == uid;
 
       match /notes/{noteId} {
         allow read, write: if isAuthed() && request.auth.uid == uid;
@@ -85,6 +86,36 @@ service cloud.firestore {
         allow create: if isAuthed();
         allow read, update: if isAuthed();
         allow delete: if false;
+      }
+
+      // Реакции на выполнение привычек (👍❤️🔥)
+      match /reactions/{reactionId} {
+        allow read:   if isMember(spaceId);
+        allow write:  if isMember(spaceId);
+      }
+
+      // Подтверждения выполнения от партнёра
+      match /confirmations/{confirmId} {
+        allow read:   if isMember(spaceId);
+        allow write:  if isMember(spaceId);
+      }
+
+      // Фото выполнения привычек
+      match /photos/{photoId} {
+        allow read:   if isMember(spaceId);
+        allow write:  if isMember(spaceId);
+      }
+
+      // Заметки к выполнению привычек (видны всем участникам пространства)
+      match /habitNotes/{noteId} {
+        allow read:   if isMember(spaceId);
+        allow write:  if isMember(spaceId);
+      }
+
+      // Настроение участников (видно партнёру)
+      match /moods/{moodId} {
+        allow read:   if isMember(spaceId);
+        allow write:  if isMember(spaceId);
       }
     }
 

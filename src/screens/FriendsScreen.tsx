@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
 import { View, Platform, Text, ScrollView, TouchableOpacity, Alert, Share, TextInput } from 'react-native';
+import * as Haptics from 'expo-haptics';
 import Svg, { Path, Circle, Rect } from 'react-native-svg';
 import { Theme } from '../theme';
 import { tr } from '../i18n';
 import { Habit, Member } from '../store';
-import { isLogged, todayDow } from '../utils';
+import { isLogged, todayDow, todayS } from '../utils';
 
 // Локализация
 import { Subscription, PLAN_LIMITS, canInvite, canAddMember } from '../subscription';
@@ -21,9 +22,11 @@ interface Props {
   onLeaveSpace?: () => void;
   onKickMember?: (memberId: string) => void;
   onJoinByCode?: (code: string) => void;
+  confirmations?: import('../store').HabitConfirmation[];
+  onConfirmPartner?: (habitId: string) => void;
 }
 
-export default function FriendsScreen({ myId, myName, lang, tk, habits, members, logs, subscription, onOpenPaywall, invLink, onCreateLink, onCopyLink, onInviteScreen, onLeaveSpace, onKickMember, onJoinByCode }: Props) {
+export default function FriendsScreen({ myId, myName, lang, tk, habits, members, logs, subscription, onOpenPaywall, invLink, onCreateLink, onCopyLink, onInviteScreen, onLeaveSpace, onKickMember, onJoinByCode, confirmations, onConfirmPartner }: Props) {
   const isEn = lang === 'en';
   const L = (ru: string, en: string, uk?: string, be?: string, kk?: string) =>
     lang==='en' ? en : lang==='uk' ? (uk||ru) : lang==='be' ? (be||ru) : lang==='kk' ? (kk||ru) : ru;
@@ -113,31 +116,66 @@ export default function FriendsScreen({ myId, myName, lang, tk, habits, members,
                 <View style={{ flexDirection: 'row', gap: 8, marginBottom: 14 }}>
                   <View style={{ flex: 1, backgroundColor: tk.bg3, borderRadius: 10, padding: 10, alignItems: 'center' }}>
                     <Text style={{ fontSize: 20, fontWeight: '700', color: tk.text }}>{doneToday}/{todayH.length}</Text>
-                    <Text style={{ fontSize: 9, color: tk.text3, marginTop: 2, textTransform: 'uppercase', letterSpacing: 0.5 }}>{(lang === 'en' ? 'today' : 'сегодня')}</Text>
+                    <Text style={{ fontSize: 9, color: tk.text2, marginTop: 2, textTransform: 'uppercase', letterSpacing: 0.5 }}>{(lang === 'en' ? 'today' : 'сегодня')}</Text>
                   </View>
                   <View style={{ flex: 1, backgroundColor: tk.bg3, borderRadius: 10, padding: 10, alignItems: 'center' }}>
                     <Text style={{ fontSize: 20, fontWeight: '700', color: tk.text }}>{partStreak}</Text>
-                    <Text style={{ fontSize: 9, color: tk.text3, marginTop: 2, textTransform: 'uppercase', letterSpacing: 0.5 }}>{(lang === 'en' ? 'streak' : 'серия')}</Text>
+                    <Text style={{ fontSize: 9, color: tk.text2, marginTop: 2, textTransform: 'uppercase', letterSpacing: 0.5 }}>{(lang === 'en' ? 'streak' : 'серия')}</Text>
                   </View>
                 </View>
               );
             })()}
             {todayH.map(h => {
               const done = isLogged(h.id, partner.id, logs);
+              const needsMyConfirm = !!(
+                h.requirePartnerConfirm &&
+                confirmations?.some(c =>
+                  c.habitId === h.id &&
+                  c.date === todayS() &&
+                  c.fromId === partner.id &&
+                  !c.confirmedBy
+                )
+              );
               return (
-                <View key={h.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 10,
+                <View key={h.id} style={{ borderRadius: 12, marginBottom: 6, overflow: 'hidden' }}>
+                {needsMyConfirm && (
+                  <TouchableOpacity
+                    onPress={() => onConfirmPartner?.(h.id)}
+                    activeOpacity={0.7}
+                    style={{ flexDirection: 'row', alignItems: 'center', gap: 8,
+                      paddingHorizontal: 12, paddingVertical: 8,
+                      backgroundColor: tk.accent + '18', borderWidth: 1, borderColor: tk.accent + '60',
+                      borderBottomWidth: 0, borderTopLeftRadius: 12, borderTopRightRadius: 12 }}>
+                    <Text style={{ fontSize: 14, color: tk.accent }}>✓</Text>
+                    <Text style={{ fontSize: 12, fontWeight: '600', color: tk.accent, flex: 1 }}>
+                      {lang === 'en'
+                        ? `Confirm: ${partner.name} completed «${h.name}»`
+                        : `Подтвердить: ${partner.name} выполнил «${h.name}»`}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10,
                   paddingHorizontal: 12, paddingVertical: 10,
                   backgroundColor: done ? tk.bg3 : tk.bg,
-                  borderRadius: 12, marginBottom: 6,
-                  borderWidth: 1, borderColor: done ? tk.border : tk.border,
+                  borderRadius: needsMyConfirm ? 0 : 12,
+                  borderBottomLeftRadius: 12, borderBottomRightRadius: 12,
+                  borderWidth: 1, borderColor: needsMyConfirm ? tk.accent + '60' : tk.border,
+                  borderTopWidth: needsMyConfirm ? 0 : 1,
                   opacity: done ? 0.7 : 1 }}>
-                  <View style={{ width: 28, height: 28, borderRadius: 8,
-                    backgroundColor: h.color && h.color !== '#f5f5f5' ? h.color : tk.bg3,
-                    alignItems: 'center', justifyContent: 'center' }}>
-                    <Text style={{ fontSize: 13, fontWeight: '700', color: tk.bg }}>
-                      {(h.name||'')[0]?.toUpperCase()}
-                    </Text>
-                  </View>
+                  {(() => {
+                    const bg = h.color && h.color !== '#f5f5f5' && h.color !== '#ffffff' ? h.color : tk.bg3;
+                    const hex = bg.replace('#','');
+                    const r=parseInt(hex.substring(0,2),16), g=parseInt(hex.substring(2,4),16), b=parseInt(hex.substring(4,6),16);
+                    const textCol = (r*299+g*587+b*114)/1000 > 140 ? '#111' : '#fff';
+                    return (
+                      <View style={{ width: 28, height: 28, borderRadius: 8,
+                        backgroundColor: bg, alignItems: 'center', justifyContent: 'center' }}>
+                        <Text style={{ fontSize: 13, fontWeight: '700', color: textCol }}>
+                          {(h.name||'')[0]?.toUpperCase()}
+                        </Text>
+                      </View>
+                    );
+                  })()}
                   <View style={{ flex: 1 }}>
                     <Text style={{ fontSize: 13, color: done ? tk.text3 : tk.text,
                       fontWeight: done ? '400' : '500',
@@ -157,6 +195,7 @@ export default function FriendsScreen({ myId, myName, lang, tk, habits, members,
                     )}
                   </View>
                 </View>
+                </View>
               );
             })}
             {todayH.length === 0 && (
@@ -172,14 +211,32 @@ export default function FriendsScreen({ myId, myName, lang, tk, habits, members,
           <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12 }}>
             {onLeaveSpace && (
               <TouchableOpacity
-                onPress={() => Alert.alert(
-                  lang === 'en' ? 'Leave shared space?' : 'Выйти из пространства?',
-                  lang === 'en' ? 'You will lose access to shared habits.' : 'Вы потеряете доступ к общим привычкам.',
-                  [
-                    { text: lang === 'en' ? 'Cancel' : 'Отмена', style: 'cancel' },
-                    { text: lang === 'en' ? 'Leave' : 'Выйти', style: 'destructive', onPress: onLeaveSpace },
-                  ]
-                )}
+                onPress={() => {
+                  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(()=>{});
+                  Alert.alert(
+                    lang === 'en' ? 'Leave shared space?' : 'Покинуть пространство?',
+                    lang === 'en'
+                      ? 'All shared habits, streaks and joint history will be lost for you. This cannot be undone.'
+                      : 'Все совместные привычки, серии и совместная история будут потеряны для вас. Это действие необратимо.',
+                    [
+                      { text: lang === 'en' ? 'Cancel' : 'Отмена', style: 'cancel' },
+                      {
+                        text: lang === 'en' ? 'Continue' : 'Продолжить',
+                        style: 'destructive',
+                        onPress: () => Alert.alert(
+                          lang === 'en' ? 'Are you absolutely sure?' : 'Вы точно уверены?',
+                          lang === 'en'
+                            ? `You and ${partner.name} will lose all your progress together.`
+                            : `Вы и ${partner.name} потеряете весь совместный прогресс.`,
+                          [
+                            { text: lang === 'en' ? 'Cancel' : 'Отмена', style: 'cancel' },
+                            { text: lang === 'en' ? 'Leave forever' : 'Выйти навсегда', style: 'destructive', onPress: onLeaveSpace },
+                          ]
+                        ),
+                      },
+                    ]
+                  );
+                }}
                 style={{ flex: 1, backgroundColor: tk.bg2, borderWidth: 1, borderColor: tk.border,
                   borderRadius: 14, padding: 13, alignItems: 'center' }}>
                 <Text style={{ fontSize: 13, fontWeight: '600', color: tk.text3 }}>
@@ -189,14 +246,17 @@ export default function FriendsScreen({ myId, myName, lang, tk, habits, members,
             )}
             {onKickMember && (
               <TouchableOpacity
-                onPress={() => Alert.alert(
-                  lang === 'en' ? `Remove ${partner.name}?` : `Убрать ${partner.name}?`,
-                  lang === 'en' ? 'They will lose access to the shared space.' : 'Партнёр потеряет доступ к общему пространству.',
-                  [
-                    { text: lang === 'en' ? 'Cancel' : 'Отмена', style: 'cancel' },
-                    { text: lang === 'en' ? 'Remove' : 'Убрать', style: 'destructive', onPress: () => onKickMember(partner.id) },
-                  ]
-                )}
+                onPress={() => {
+                  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(()=>{});
+                  Alert.alert(
+                    lang === 'en' ? `Remove ${partner.name}?` : `Убрать ${partner.name}?`,
+                    lang === 'en' ? 'They will lose access to the shared space.' : 'Партнёр потеряет доступ к общему пространству.',
+                    [
+                      { text: lang === 'en' ? 'Cancel' : 'Отмена', style: 'cancel' },
+                      { text: lang === 'en' ? 'Remove' : 'Убрать', style: 'destructive', onPress: () => onKickMember(partner.id) },
+                    ]
+                  );
+                }}
                 style={{ flex: 1, backgroundColor: tk.bg2, borderWidth: 1, borderColor: '#e05555',
                   borderRadius: 14, padding: 13, alignItems: 'center' }}>
                 <Text style={{ fontSize: 13, fontWeight: '600', color: '#e05555' }}>
@@ -310,8 +370,18 @@ export default function FriendsScreen({ myId, myName, lang, tk, habits, members,
               {(lang === 'en' ? 'No partner yet' : 'Пока нет партнёра')}
             </Text>
             <Text style={{ fontSize: 12, color: tk.text3, textAlign: 'center', lineHeight: 18, paddingHorizontal: 32 }}>
-              {(lang === 'en' ? 'Invite a friend to track habits together' : 'Пригласите друга чтобы отслеживать привычки вместе')}
+              {(lang === 'en'
+                ? 'Share your invite link — your friend opens it and joins instantly'
+                : 'Поделитесь ссылкой-приглашением — друг откроет её и сразу присоединится')}
             </Text>
+            <View style={{ backgroundColor: tk.bg2, borderRadius: 12, borderWidth: 1,
+              borderColor: tk.border, paddingHorizontal: 16, paddingVertical: 10, marginTop: 4 }}>
+              <Text style={{ fontSize: 12, color: tk.text2, textAlign: 'center', lineHeight: 18 }}>
+                {lang === 'en'
+                  ? '1. Tap "Share invite" above\n2. Send the link to your friend\n3. They open the link → you\'re connected'
+                  : '1. Нажмите «Пригласить» выше\n2. Отправьте ссылку другу\n3. Друг открывает ссылку → вы вместе'}
+              </Text>
+            </View>
           </View>
         )}
 

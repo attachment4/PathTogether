@@ -786,7 +786,7 @@ function AchCard({ ach, isEn, lang, tk, delay }: { ach: Achievement; isEn: boole
       }}>
         {/* Иконка + lock */}
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-          <View style={{ width: 28, height: 28, opacity: ach.done ? 1 : 0.3 }}>
+          <View style={{ width: 28, height: 28, opacity: ach.done ? 1 : 0.55 }}>
             <AchIcon id={ach.id} color={ach.done ? catColor[ach.category] : tk.text3} />
           </View>
           {ach.joint && (
@@ -847,7 +847,7 @@ function AchUnlockModal({ ach, tk, isEn, lang, onClose }: {
       Animated.spring(scale, { toValue: 1, friction: 5, tension: 100, useNativeDriver: true }),
       Animated.timing(opacity, { toValue: 1, duration: 200, useNativeDriver: true }),
     ]).start();
-    const t = setTimeout(onClose, 3000);
+    const t = setTimeout(onClose, 5000);
     return () => clearTimeout(t);
   }, [ach]);
 
@@ -871,6 +871,9 @@ function AchUnlockModal({ ach, tk, isEn, lang, onClose }: {
         </View>
         <Text style={{ fontSize: 18, fontWeight: '500', color: tk.text }}>{isEn ? ach.label_en : ach.label_uk && lang==='uk' ? ach.label_uk : ach.label_be && lang==='be' ? ach.label_be : ach.label_kk && lang==='kk' ? ach.label_kk : ach.label_ru}</Text>
         <Text style={{ fontSize: 12, color: tk.text3, textAlign: 'center' }}>{isEn ? ach.desc_en : ach.desc_uk && lang==='uk' ? ach.desc_uk : ach.desc_be && lang==='be' ? ach.desc_be : ach.desc_kk && lang==='kk' ? ach.desc_kk : ach.desc_ru}</Text>
+        <Text style={{ fontSize: 10, color: tk.text3, marginTop: 4 }}>
+          {isEn ? 'Tap to close' : 'Нажми чтобы закрыть'}
+        </Text>
       </Animated.View>
     </TouchableOpacity>
   );
@@ -885,7 +888,8 @@ export default function AchievementsScreen({
   const [activeTab, setActiveTab] = useState<string>('start');
   const [newAch, setNewAch] = useState<Achievement | null>(null);
   const [searchQ, setSearchQ] = useState('');
-  const prevDone = useRef(new Set<string>());
+  const prevDone  = useRef(new Set<string>());
+  const achMounted = useRef(false);
   const allAchs = buildAchievements({ habitCount, totalDone, maxStreak, friendCount, partnerTotalDone });
   const q = searchQ.toLowerCase();
   const achs = searchQ
@@ -902,10 +906,11 @@ export default function AchievementsScreen({
   
   useEffect(() => {
     const justUnlocked = achs.filter(a => a.done && !prevDone.current.has(a.id));
-    if (justUnlocked.length > 0 && prevDone.current.size > 0) {
+    if (justUnlocked.length > 0 && achMounted.current) {
       setNewAch(justUnlocked[0]);
     }
     achs.filter(a => a.done).forEach(a => prevDone.current.add(a.id));
+    achMounted.current = true;
   }, [totalDone, maxStreak, habitCount]);
   const done  = achs.filter(a => a.done).length;
   const total = achs.length;

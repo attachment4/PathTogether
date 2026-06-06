@@ -14,6 +14,27 @@ function getNotificationBody(fromName, habitName, lang) {
   return `${fromName || 'Партнёр'} выполнил: ${habitName}`;
 }
 
+function getReactionBody(fromName, emoji, habitName, lang) {
+  if (lang === 'en') return `${fromName || 'Partner'} reacted ${emoji} to: ${habitName}`;
+  return `${fromName || 'Партнёр'} отреагировал ${emoji} на: ${habitName}`;
+}
+
+/** Универсальная отправка FCM одному токену */
+async function sendFCM(token, title, body, data = {}) {
+  return messaging.send({
+    token,
+    notification: { title, body },
+    data: Object.fromEntries(Object.entries(data).map(([k, v]) => [k, String(v)])),
+    android: {
+      priority: 'high',
+      notification: { channelId: 'partner', sound: 'default' },
+    },
+    apns: {
+      payload: { aps: { sound: 'default', badge: 1 } },
+    },
+  });
+}
+
 // ── Отправить push партнёру (callable) ───────────────────────────────────────
 exports.notifyPartner = functions.region('europe-west1').https.onCall(async (data) => {
   const { fromName, toUid, habitName, lang } = data;
@@ -49,31 +70,42 @@ exports.notifyPartner = functions.region('europe-west1').https.onCall(async (dat
 exports.onNotificationCreated = functions
   .region('europe-west1')
   .firestore.document('spaces/{spaceId}/notifications/{notifId}')
-  .onCreate(async (snap, context) => {
+  .onCreate(async (snap) => {
     const data = snap.data();
-    if (!data || data.sent || data.type !== 'habit_done') return null;
+    if (!data || data.sent) return null;
 
     try {
-      const tokenDoc = await db.collection('users').doc(data.toUid).get();
-      const token = tokenDoc.data()?.fcmToken;
+      const userDoc = await db.collection('users').doc(data.toUid).get();
+      const token = userDoc.data()?.fcmToken;
+      const recipientLang = userDoc.data()?.lang || data.lang || 'ru';
+
       if (!token) {
         await snap.ref.update({ sent: true, error: 'no_token' });
         return null;
       }
 
-      const recipientLang = (await db.collection('users').doc(data.toUid).get()).data()?.lang || 'ru';
-      await messaging.send({
-        token,
-        notification: {
-          title: data.fromName || 'PathTogether',
-          body: getNotificationBody(data.fromName, data.habitName, recipientLang),
-        },
-        data: { type: 'habit_done', habitName: data.habitName },
-        android: {
-          priority: 'high',
-          notification: { channelId: 'partner', sound: 'default' },
-        },
-      });
+      if (data.type === 'habit_done') {
+        await sendFCM(
+          token,
+          data.fromName || 'PathTogether',
+          getNotificationBody(data.fromName, data.habitName, recipientLang),
+          { type: 'habit_done', habitId: data.habitId || '', habitName: data.habitName || '', fromName: data.fromName || '' },
+        );
+      } else if (data.type === 'reaction') {
+        await sendFCM(
+          token,
+          'PathTogether',
+          getReactionBody(data.fromName, data.emoji, data.habitName, recipientLang),
+          { type: 'reaction', habitId: data.habitId || '', emoji: data.emoji || '', fromName: data.fromName || '' },
+        );
+      } else if (data.type === 'nudge') {
+        await sendFCM(
+          token,
+          data.fromName || 'PathTogether',
+          data.body || 'Твой партнёр ждёт тебя',
+          { type: 'nudge' },
+        );
+      }
 
       await snap.ref.update({ sent: true, sentAt: admin.firestore.FieldValue.serverTimestamp() });
       return null;

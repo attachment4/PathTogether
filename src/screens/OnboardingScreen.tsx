@@ -10,7 +10,7 @@ import { STATUS_BAR_TOP } from '../utils';
 
 const { width: W, height: H } = Dimensions.get('window');
 const TOP = STATUS_BAR_TOP + 4; // onboarding needs extra breathing room
-interface Props { tk: Theme; lang?: string; onDone: () => void; }
+interface Props { tk: Theme; lang?: string; onDone: () => void; onInvite?: () => void; }
 
 //  Иллюстрации 
 
@@ -27,9 +27,9 @@ function Illo0({ tk }: { tk: Theme }) {
   return (
     <Animated.View style={{ opacity: fade, transform: [{ translateY: y }], alignItems: 'flex-start', marginTop: 8 }}>
       {/* Разделитель как в презентации */}
-      <View style={{ width: 40, height: 2, backgroundColor: tk.text3, marginBottom: 24 }} />
+      <View style={{ width: 40, height: 2, backgroundColor: tk.border, marginBottom: 24 }} />
       <Text style={{ fontSize: 14, color: tk.text3, lineHeight: 22 }}>
-        Ваш путь к привычкам — теперь вместе.{'\n'}Помогаем строить дисциплину и укреплять связи.
+        Ваш путь к привычкам — теперь вместе. Помогаем строить дисциплину и укреплять связи.
       </Text>
     </Animated.View>
   );
@@ -276,7 +276,7 @@ function Illo4({ tk, checked, onCheck }: { tk: Theme; checked: boolean; onCheck:
   );
 }
 
-//  Данные слайдов 
+//  Данные слайдов
 const SLIDES = [
   { id: 's0', accentTitle: 'PathTogether', regularTitle: '',
     sub: '' },
@@ -288,9 +288,11 @@ const SLIDES = [
     sub: 'Трекер настроения, заметки к привычкам и подробная статистика.' },
   { id: 's4', accentTitle: 'первому шагу?', regularTitle: 'Готов к ',
     sub: 'Выбери цель чтобы мы подготовили персональные рекомендации.' },
+  { id: 's5', accentTitle: 'партнёра',     regularTitle: 'Пригласи ',
+    sub: 'Приложение раскрывается в полную силу когда вы движетесь вместе.' },
 ];
 
-export default function OnboardingScreen({ tk, lang = 'ru', onDone }: Props) {
+export default function OnboardingScreen({ tk, lang = 'ru', onDone, onInvite }: Props) {
   const [cur, setCur]           = useState(0);
   const [goal, setGoal]         = useState<string>('');
   const [userName, setUserName]  = useState<string>('');
@@ -302,11 +304,12 @@ export default function OnboardingScreen({ tk, lang = 'ru', onDone }: Props) {
   const btnScale     = useRef(new Animated.Value(1)).current;
   const transitioning = useRef(false);
 
-  const slide   = SLIDES[cur];
-  const isFinal = slide.id === 's4';
-  const isFirst = cur === 0;
-  const isLast  = cur === SLIDES.length - 1;
-  const canGo   = isFinal ? finalChecked : true;
+  const slide    = SLIDES[cur];
+  const isFinal  = slide.id === 's4';
+  const isInvite = slide.id === 's5';
+  const isFirst  = cur === 0;
+  const isLast   = cur === SLIDES.length - 1;
+  const canGo    = isFinal ? finalChecked : true;
 
   const transition = () => {
     if (transitioning.current) return;
@@ -334,7 +337,9 @@ export default function OnboardingScreen({ tk, lang = 'ru', onDone }: Props) {
       Animated.timing(btnScale, { toValue: 0.95, duration: 70, useNativeDriver: true }),
       Animated.spring(btnScale, { toValue: 1, friction: 5, useNativeDriver: true }),
     ]).start();
-    if (isLast) {
+    // Завершаем онбординг: либо последний слайд, либо выбрана цель не 'together' (пропускаем invite)
+    const shouldFinish = isLast || (isFinal && finalChecked && !!goal && goal !== 'together');
+    if (shouldFinish) {
       Animated.timing(slideX, { toValue: -30, duration: 280, useNativeDriver: true }
       ).start(async () => {
         await Storage.saveOnboarding();
@@ -448,6 +453,59 @@ export default function OnboardingScreen({ tk, lang = 'ru', onDone }: Props) {
             <Illo4 tk={tk} checked={finalChecked} onCheck={() => setFinalChecked(f => !f)} />
           </View>
         )}
+
+        {/* Слайд-инвайт */}
+        {cur === 5 && (
+          <View style={{ gap: 16, marginTop: 8 }}>
+            {/* Иллюстрация: два аватара + стрелки */}
+            <View style={{ backgroundColor: tk.bg2, borderRadius: 20, borderWidth: 1,
+              borderColor: tk.border, padding: 24, alignItems: 'center', gap: 16 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 0 }}>
+                <View style={{ width: 56, height: 56, borderRadius: 28,
+                  backgroundColor: tk.text, alignItems: 'center', justifyContent: 'center',
+                  borderWidth: 2, borderColor: tk.bg }}>
+                  <Text style={{ fontSize: 20, fontWeight: '700', color: tk.bg }}>Я</Text>
+                </View>
+                <View style={{ paddingHorizontal: 12, gap: 4, alignItems: 'center' }}>
+                  <View style={{ flexDirection: 'row', gap: 4 }}>
+                    {['👍','❤️','🔥'].map(e => (
+                      <View key={e} style={{ backgroundColor: tk.bg3, borderRadius: 10,
+                        paddingHorizontal: 6, paddingVertical: 4 }}>
+                        <Text style={{ fontSize: 14 }}>{e}</Text>
+                      </View>
+                    ))}
+                  </View>
+                  <Svg width={36} height={12} viewBox="0 0 36 12" fill="none">
+                    <Path d="M0 6h36M28 1l7 5-7 5" stroke={tk.text3} strokeWidth="1.5"
+                      strokeLinecap="round" strokeLinejoin="round"/>
+                  </Svg>
+                </View>
+                <View style={{ width: 56, height: 56, borderRadius: 28,
+                  backgroundColor: tk.bg3, alignItems: 'center', justifyContent: 'center',
+                  borderWidth: 2, borderColor: tk.border }}>
+                  <Text style={{ fontSize: 20, color: tk.text3 }}>?</Text>
+                </View>
+              </View>
+              <Text style={{ fontSize: 12, color: tk.text3, textAlign: 'center', lineHeight: 18 }}>
+{'Видите прогресс друг друга в реальном времени. Реакции на привычки одним нажатием.'}
+              </Text>
+            </View>
+
+            {/* Преимущества */}
+            {[
+              { e: '📊', t: 'Общий прогресс на главном экране' },
+              { e: '🔥', t: 'Совместные серии и достижения' },
+              { e: '💬', t: 'Реакции без открытия приложения' },
+            ].map(({ e, t }) => (
+              <View key={t} style={{ flexDirection: 'row', alignItems: 'center', gap: 12,
+                backgroundColor: tk.bg2, borderRadius: 14, borderWidth: 1,
+                borderColor: tk.border, paddingVertical: 10, paddingHorizontal: 14 }}>
+                <Text style={{ fontSize: 20 }}>{e}</Text>
+                <Text style={{ flex: 1, fontSize: 13, color: tk.text2 }}>{t}</Text>
+              </View>
+            ))}
+          </View>
+        )}
       </Animated.View>
 
       {/* Нижняя панель */}
@@ -474,19 +532,32 @@ export default function OnboardingScreen({ tk, lang = 'ru', onDone }: Props) {
         </View>
 
         {/* Кнопка */}
-        <Animated.View style={{ transform: [{ scale: btnScale }] }}>
+        <Animated.View style={{ transform: [{ scale: btnScale }], gap: 10 }}>
+          {isInvite && (
+            <TouchableOpacity onPress={() => { onInvite?.(); }}
+              activeOpacity={0.85}
+              style={{ backgroundColor: tk.text, borderRadius: 14, paddingVertical: 15,
+                flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+              <Text style={{ fontSize: 15, fontWeight: '600', color: tk.bg }}>
+                {lang === 'en' ? 'Invite partner' : 'Пригласить партнёра'}
+              </Text>
+            </TouchableOpacity>
+          )}
           <TouchableOpacity onPress={goNext} disabled={!canGo} activeOpacity={0.85}
             style={{
-              backgroundColor: canGo ? tk.text : tk.bg2,
-              borderWidth: 1, borderColor: canGo ? 'transparent' : tk.border,
+              backgroundColor: isInvite ? 'transparent' : (canGo ? tk.text : tk.bg2),
+              borderWidth: 1,
+              borderColor: isInvite ? tk.border : (canGo ? 'transparent' : tk.border),
               borderRadius: 14, paddingVertical: 15,
               flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
             }}>
-            <Text style={{ fontSize: 15, fontWeight: '600',
-              color: canGo ? tk.bg : tk.text3 }}>
-              {isFinal ? (finalChecked ? 'Погнали' : 'Подтверди выше') : 'Далее'}
+            <Text style={{ fontSize: 15, fontWeight: isInvite ? '400' : '600',
+              color: isInvite ? tk.text3 : (canGo ? tk.bg : tk.text3) }}>
+              {isInvite
+                ? (lang === 'en' ? 'Skip for now' : 'Пропустить пока')
+                : isFinal ? (finalChecked ? (lang === 'en' ? 'Let\'s go' : 'Погнали') : (lang === 'en' ? 'Select a goal above ↑' : 'Выберите цель выше ↑')) : (lang === 'en' ? 'Next' : 'Далее')}
             </Text>
-            {canGo && (
+            {canGo && !isInvite && (
               <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
                 <Path d="M5 12h14M13 6l6 6-6 6" stroke={tk.bg} strokeWidth="2"
                   strokeLinecap="round" strokeLinejoin="round"/>

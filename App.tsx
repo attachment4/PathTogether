@@ -3,7 +3,7 @@ import {
   View, Text, TouchableOpacity, TouchableWithoutFeedback, ScrollView, TextInput,
   KeyboardAvoidingView, Platform, StatusBar, Alert,
   ActivityIndicator, Share, PanResponder, Animated, BackHandler, Modal,
-  Dimensions, useColorScheme, Keyboard,
+  Dimensions, useColorScheme, Keyboard, Image,
 } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import * as Linking from 'expo-linking';
@@ -14,8 +14,8 @@ import Svg, { Path, Circle, Rect } from 'react-native-svg';
 import QRCodeSVG from 'react-native-qrcode-svg';
 
 import { getTK, WD_RU, WD_EN } from './src/theme';
-import { Storage, Habit, Member } from './src/store';
-import { mkid, secureCode, todayS, todayDow, getLast7Days, isLogged, calcStreak} from './src/utils';
+import { Storage, Habit, Member, HabitReaction } from './src/store';
+import { mkid, secureCode, todayS, todayDow, getLast7Days, isLogged, calcStreak, calcJointStreak } from './src/utils';
 import { auth, db } from './src/firebase';
 import { doc, getDoc, runTransaction, deleteDoc } from 'firebase/firestore';
 import {
@@ -28,12 +28,16 @@ import {
   setupNotificationChannel,
   notifyAchievement,
   scheduleHabitTimeNotifications,
+  scheduleNudgeNotification,
+  requestPermissions,
+  cancelHabitNotifications,
 } from './src/notifications';
+import WeekPlanModal from './src/components/WeekPlanModal';
 import { buildAchievements } from './src/screens/AchievementsScreen';
 import * as Haptics from 'expo-haptics';
 import { initPurchases } from './src/purchases';
-import { registerDeviceToken, requestPartnerNotification } from './src/pushNotifications';
-const Notifications = { setBadgeCountAsync: async () => {} }; // stub
+import { registerDeviceToken, sendPartnerNotification, sendReactionNotification } from './src/pushNotifications';
+import { setBadgeCount as _setBadgeCount } from './src/notifications';
 
 import OnboardingScreen   from './src/screens/OnboardingScreen';
 import SettingsScreen    from './src/screens/SettingsScreen';
@@ -402,10 +406,34 @@ export default function App() {
   });
   const [themeLoaded, setThemeLoaded] = useState(false);
   const [offlineMode, setOfflineMode] = useState(false);
+  const [showWeekPlan, setShowWeekPlan] = useState(false);
+  const [reactions, setReactions] = useState<HabitReaction[]>([]);
+  const [todayMood, setTodayMood] = useState<1|2|3|4|5|null>(null);
+  const [onboardingGoal, setOnboardingGoal] = useState<string>('');
+  const [spaceNotes, setSpaceNotes] = useState<{habitId:string;date:string;uid:string;note:string}[]>([]);
+  const unsubReactions    = useRef<(() => void) | null>(null);
+  const habitsRef         = useRef<import('./src/store').Habit[]>([]);
+  const prevReactionKeys  = useRef(new Set<string>());
+  const prevConfirmKeys   = useRef(new Set<string>());
+  const reactingRef       = useRef(false); // лок против спама реакций
+  const unsubSpaceNotes    = useRef<(() => void) | null>(null);
+  const unsubConfirmations = useRef<(() => void) | null>(null);
+  const [confirmations, setConfirmations] = useState<import('./src/store').HabitConfirmation[]>([]);
+  // Онбординг для партнёра: показывается после первого присоединения к чужому пространству
+  const [partnerWelcome, setPartnerWelcome] = useState<{partnerName:string; habitCount:number} | null>(null);
   // Синхронизируем ref для PanResponder (замыкание не видит стейт)
-  // Флаг: subscription загружена из Firestore (не дефолтное значение)
+  // Флаг: subscription загружена из Firestore (не дефолтное данные)
   const subscriptionLoaded = useRef(false);
   useEffect(() => { screenRef.current = screen; }, [screen]);
+
+  // Загружаем настроение за сегодня при возврате на экран today
+  useEffect(() => {
+    if (screen === 'today' && myId && myId !== 'guest') {
+      Storage.getMood(myId, todayS()).then(entry => {
+        setTodayMood(entry ? entry.mood : null);
+      }).catch(() => {});
+    }
+  }, [screen, myId]);
 
   // Автогенерация инвайт-ссылки при переходе на экран invite
   // Ждём загрузки subscription — иначе canInvite() вернёт false для платного юзера
@@ -441,11 +469,43 @@ export default function App() {
       } catch { if (!cancelled) setIsOnline(true); }
     };
     check();
-    const id = setInterval(check, 30000); // 30 сек — достаточно для UI, не перегружает CPU
+    const id = setInterval(check, 30000);
     return () => { cancelled = true; clearInterval(id); };
+  }, []);
+
+  // OTA обновления
+  useEffect(() => {
+    (async () => {
+      try {
+        const Updates = require('expo-updates');
+        if (!Updates.isEnabled) return;
+        const result = await Updates.checkForUpdateAsync();
+        if (result.isAvailable) {
+          await Updates.fetchUpdateAsync();
+          Alert.alert(
+            lang === 'en' ? 'Update available' : 'Доступно обновление',
+            lang === 'en'
+              ? 'A new version has been downloaded. Restart to apply.'
+              : 'Новая версия загружена. Перезапустите приложение для применения.',
+            [
+              { text: lang === 'en' ? 'Later' : 'Позже', style: 'cancel' },
+              {
+                text: lang === 'en' ? 'Restart' : 'Перезапустить',
+                onPress: () => Updates.reloadAsync().catch(() => {}),
+              },
+            ],
+          );
+        }
+      } catch {}
+    })();
   }, []);
   // FIX 1: ждём ответа Firebase перед рендером экрана входа
   const [authChecked, setAuthChecked] = useState(false);
+  // Защита от ложного null: Firebase при старте сначала стреляет null пока грузит
+  // сессию из AsyncStorage, потом стреляет снова с реальным юзером.
+  // sessionEstablished = true после того как мы хотя бы раз увидели реального юзера
+  // или загрузили сессию из офлайн-кеша — в этом состоянии null игнорируем.
+  const sessionEstablished = useRef(false);
   const [lang,        setLang]        = useState('ru');
   const [invLink,     setInvLink]     = useState('');
   const prevInviteScreen = useRef<Screen>('friends');
@@ -453,6 +513,7 @@ export default function App() {
   const [detailH,     setDetailH]     = useState<Habit|null>(null);
   const [editH,       setEditH]       = useState<Habit|null>(null);
   const [showTimePicker, setShowTimePicker] = useState(false);
+  const [reminderTimePicker, setReminderTimePicker] = useState<'from'|'to'|null>(null);
   const [pendInv,     setPendInv]     = useState<string|null>(null);
 
   // FIX 2: рефы для подписок Firestore
@@ -463,7 +524,25 @@ export default function App() {
   const isRegistering = useRef(false);
   const prevAchIds    = useRef<Set<string>>(new Set()); // уже разблокированные достижения
 
-  //  Tab screens для свайпа и BackHandler 
+  // Инициализируем prevAchIds уже разблокированными достижениями при первой загрузке space.
+  // Без этого первый toggle после запуска триггерит уведомления для ВСЕХ выполненных достижений.
+  useEffect(() => {
+    if (!space?.id || !myId || myId === 'guest') return;
+    const l = space.logs || {};
+    const totalDone = Object.keys(l).filter(k => k.includes(`_${myId}`)).length;
+    const maxStrk = (space.habits || []).length > 0
+      ? Math.max(0, ...(space.habits || []).map((h: any) => calcStreak(h.id, myId, l, h.days)))
+      : 0;
+    const achs = buildAchievements({
+      habitCount: (space.habits || []).length,
+      totalDone,
+      maxStreak: maxStrk,
+      friendCount: (space.members || []).length > 1 ? 1 : 0,
+    });
+    achs.filter(a => a.done).forEach(a => prevAchIds.current.add(a.id));
+  }, [space?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  //  Tab screens для свайпа и BackHandler
   const TAB_SCREENS: Screen[] = ['today', 'friends', 'calendar', 'profile'];
 
   // Android BackHandler
@@ -514,6 +593,93 @@ export default function App() {
   const [coverOpacity] = useState(new Animated.Value(0));
   const [coverVisible, setCoverVisible] = useState(false);
   const [noteModal, setNoteModal] = useState<{habitId:string;date:string}|null>(null);
+  // Таймер для detail screen
+  const [timerActive, setTimerActive] = useState(false);
+  const [timerLeft,   setTimerLeft]   = useState(0);
+  const timerRef          = useRef<ReturnType<typeof setInterval>|null>(null);
+  const timerHabitName    = useRef<string>('');
+  const timerTotalSeconds = useRef<number>(0);
+
+  const startTimer = (seconds: number, habitName?: string) => {
+    if (timerRef.current) clearInterval(timerRef.current);
+    timerTotalSeconds.current = seconds;
+    if (habitName) timerHabitName.current = habitName;
+    setTimerLeft(seconds);
+    setTimerActive(true);
+
+    // Отменяем предыдущие timer-уведомления
+    try {
+      const N = require('expo-notifications');
+      N.cancelScheduledNotificationAsync('timer_warning').catch(()=>{});
+      N.cancelScheduledNotificationAsync('timer_done').catch(()=>{});
+
+      const { Platform } = require('react-native');
+      const isAndroid = Platform.OS === 'android';
+
+      // Уведомление за 20 секунд до конца
+      if (seconds > 20) {
+        N.scheduleNotificationAsync({
+          identifier: 'timer_warning',
+          content: {
+            title: '⏱ Почти готово!',
+            body: `${timerHabitName.current || 'Привычка'} — осталось 20 секунд`,
+            sound: 'default',
+            ...(isAndroid ? { channelId: 'timer' } : {}),
+          },
+          trigger: { type: 'timeInterval', seconds: seconds - 20, repeats: false },
+        }).catch(()=>{});
+      }
+
+      // Уведомление по завершении
+      N.scheduleNotificationAsync({
+        identifier: 'timer_done',
+        content: {
+          title: '✅ Время вышло!',
+          body: `${timerHabitName.current || 'Привычка'} выполнена`,
+          sound: 'default',
+          ...(isAndroid ? { channelId: 'timer' } : {}),
+        },
+        trigger: { type: 'timeInterval', seconds, repeats: false },
+      }).catch(()=>{});
+    } catch {}
+
+    timerRef.current = setInterval(() => {
+      setTimerLeft(prev => {
+        if (prev <= 1) {
+          clearInterval(timerRef.current!);
+          setTimerActive(false);
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  };
+
+  const stopTimer = () => {
+    if (timerRef.current) clearInterval(timerRef.current);
+    setTimerActive(false);
+    setTimerLeft(0);
+    // Отменяем запланированные уведомления таймера
+    try {
+      const N = require('expo-notifications');
+      N.cancelScheduledNotificationAsync('timer_warning').catch(()=>{});
+      N.cancelScheduledNotificationAsync('timer_done').catch(()=>{});
+    } catch {}
+  };
+
+  // Таймер НЕ останавливается при уходе с detail — продолжает тикать
+
+  // Следим за клавиатурой чтобы модал заметки не перекрывался
+  useEffect(() => {
+    const show = Keyboard.addListener('keyboardDidShow', e => {
+      setNoteKbHeight(e.endCoordinates.height);
+    });
+    const hide = Keyboard.addListener('keyboardDidHide', () => {
+      setNoteKbHeight(0);
+    });
+    return () => { show.remove(); hide.remove(); };
+  }, []);
   const [detailNotes, setDetailNotes] = useState<Record<string,string>>({});
   const [noteText, setNoteText] = useState('');
   const [noteKbHeight, setNoteKbHeight] = useState(0);
@@ -542,14 +708,14 @@ export default function App() {
 
 
 
-  const blank = {name:'',icon:'',color:'#f5f5f5',days:[0,1,2,3,4,5,6],time:'',desc:'',target:0,unit:'',category:'habit' as any, type:'good' as 'good'|'quit', timerSeconds:0, routine:undefined as any, noteEnabled:false};
+  const blank = {name:'',icon:'',color:'#f5f5f5',days:[0,1,2,3,4,5,6],time:'',desc:'',target:0,unit:'',category:'habit' as any, type:'good' as 'good'|'quit', timerSeconds:0, routine:undefined as any, noteEnabled:false, isShared:false, reminderInterval:0, reminderFrom:'08:00', reminderTo:'22:00', requirePartnerConfirm:false};
   const [nh, setNh] = useState(blank);
 
   const tk    = getTK(theme);
   const isEn  = lang==='en';
   const L = (ru: string, en: string, uk?: string, be?: string, kk?: string) =>
     lang==='en' ? en : lang==='uk' ? (uk||ru) : lang==='be' ? (be||ru) : lang==='kk' ? (kk||ru) : ru;
-  const toast$ = (msg:string,ok=true) => { setToast({msg,ok}); setTimeout(()=>setToast(null),2500); };
+  const toast$ = (msg:string,ok=true) => { setToast({msg,ok}); setTimeout(()=>setToast(null),4000); };
 
   useEffect(() => {
     Storage.loadTheme().then(t=>{if(t)setTheme(t);setThemeLoaded(true);});
@@ -558,8 +724,91 @@ export default function App() {
       if(n && !myName) setMyName(n);
     }).catch(()=>{});
     Storage.loadNotifTimeMorning().then(t=>{if(t)setNotifTimeMorning(t);});
-    Storage.get<boolean>('haptics_enabled').then(v=>{if(v===false)setHapticsEnabled(false);}).catch(()=>{});
     Storage.loadNotifTimeEvening().then(t=>{if(t)setNotifTimeEvening(t);});
+    Storage.get<boolean>('haptics_enabled').then(v=>{if(v===false)setHapticsEnabled(false);}).catch(()=>{});
+    Storage.get<boolean>('notif_enabled').then(v=>{if(v===false)setNotifEnabled(false);}).catch(()=>{});
+    Storage.get<boolean>('partner_notif').then(v=>{if(v===false)setPartnerNotif(false);}).catch(()=>{});
+
+    // Слушаем ответы на уведомления — быстрые реакции (👍❤️🔥) без открытия приложения
+    let responseSub: any = null;
+    try {
+      const Notif = require('expo-notifications');
+      if (typeof Notif.addNotificationResponseReceivedListener === 'function') {
+        responseSub = Notif.addNotificationResponseReceivedListener(async (response: any) => {
+          const actionId: string = response?.actionIdentifier ?? '';
+          const data = response?.notification?.request?.content?.data ?? {};
+
+          // ── Подтверждение выполнения привычки партнёром ────────────────────
+          if (actionId === 'confirm_yes' || data?.type === 'confirm_request') {
+            try {
+              const habitId: string = data?.habitId ?? '';
+              if (!habitId) return;
+              const sid = space?.id ?? (await Storage.loadCurrentSpace(myId ?? ''));
+              if (!sid || !myId || myId === 'guest') return;
+              const partner = space?.members?.find((m: any) => m && m.id !== myId);
+              if (!partner) return;
+              // Записываем подтверждение
+              const c: import('./src/store').HabitConfirmation = {
+                habitId, date: todayS(), fromId: partner.id, confirmedBy: myId, ts: Date.now(),
+              };
+              await Storage.saveConfirmation(sid, c).catch(() => {});
+              // Засчитываем лог партнёру
+              const l = { ...(space?.logs ?? {}) };
+              l[`${habitId}_${todayS()}_${partner.id}`] = true;
+              await Storage.setLogs(sid, l).catch(() => {});
+              // Уведомляем партнёра о подтверждении
+              const habit = space?.habits?.find((h: any) => h.id === habitId);
+              sendPartnerNotification({
+                spaceId: sid, toUid: partner.id, fromName: myName,
+                habitName: habit?.name ?? '', habitId, lang,
+                customBody: isEn
+                  ? `${myName} confirmed: ${habit?.name ?? ''}`
+                  : `${myName} подтвердил: ${habit?.name ?? ''}`,
+              }).catch(() => {});
+            } catch (e) { console.warn('[confirm_yes]', e); }
+            return;
+          }
+
+          if (!actionId.startsWith('react_')) return;
+          // push-кнопки маппятся в ReactionKey (heart | lightning | star | crown)
+          const actionToKey: Record<string, string> = {
+            react_thumbs: 'star',      // ★
+            react_heart:  'heart',     // ♡
+            react_fire:   'fire',      // 🔥
+          };
+          const emoji = actionToKey[actionId];
+          if (!emoji || !data.habitId) return;
+          try {
+            const sid = space?.id ?? (await Storage.loadCurrentSpace(myId ?? ''));
+            if (!sid || myId === 'guest') return;
+            const reaction: HabitReaction = {
+              emoji, fromId: myId, fromName: myName,
+              habitId: data.habitId, date: todayS(), ts: Date.now(),
+            };
+            await Storage.saveReaction(sid, reaction);
+            // Уведомляем владельца привычки через FCM
+            const owner = data.partnerName ? data.partnerName : '';
+            const spaceData = space;
+            if (spaceData) {
+              const habit = spaceData.habits?.find((h: any) => h.id === data.habitId);
+              const ownerMember = spaceData.members?.find((m: any) => m && m.id !== myId);
+              if (ownerMember && habit) {
+                sendReactionNotification({
+                  spaceId: sid,
+                  toUid: ownerMember.id,
+                  fromName: myName,
+                  emoji,
+                  habitName: habit.name,
+                  habitId: habit.id,
+                  lang,
+                }).catch(() => {});
+              }
+            }
+          } catch (e) { console.warn('[reactions]', e); }
+        });
+      }
+    } catch {}
+    return () => { try { responseSub?.remove?.(); } catch {} };
   }, []);
 
   //  Auth listener 
@@ -575,6 +824,7 @@ export default function App() {
           Storage.get<string>('last_name'),
         ]);
         if (lastUid) {
+          sessionEstablished.current = true; // офлайн-сессия установлена
           setMyId(lastUid);
           setMyName(lastName || 'User');
           setThemeLoaded(true);
@@ -600,23 +850,32 @@ export default function App() {
 
     const unsub = onAuthStateChanged(auth, async (user) => {
       try {
-      if (!resolved) { resolved = true; clearTimeout(offlineTimer); }
       if (!user) {
+        // Firebase при старте ВСЕГДА сначала стреляет null пока восстанавливает сессию.
+        // Не отменяем offlineTimer на null — пусть он разберётся с кешем.
+        // Реагируем на null только если offlineTimer уже отработал (resolved=true)
+        // и сессия не была установлена — это подлинный выход/нет аккаунта.
+        if (sessionEstablished.current) return;
+        if (!resolved) return; // ждём offlineTimer или реального пользователя
         stopSubs();
         setSpace(null); setMyId('');
         setAuthChecked(true); setScreen('auth');
         return;
       }
+      // Пришёл реальный пользователь — отменяем offlineTimer
+      if (!resolved) { resolved = true; clearTimeout(offlineTimer); }
+      sessionEstablished.current = true; // сессия подтверждена Firebase
       // Если идёт регистрация — onSuccess сам всё сделает
       if (isRegistering.current) return;
       setMyId(user.uid);
       // Параллельно: AsyncStorage (быстро) + один Firestore запрос если нужен
-      const [name, savedTheme, savedLang, savedAvatar, session] = await Promise.all([
+      const [name, savedTheme, savedLang, savedAvatar, session, savedGoal] = await Promise.all([
         Storage.loadName(),
         Storage.loadTheme(),
         Storage.loadLanguage(),
         Storage.get(`avatar_${user.uid}`),
         Storage.loadUserSession(user.uid), // один запрос вместо двух
+        Storage.get<string>('onboarding_goal'),
       ]);
       const displayName = name || user.displayName || user.email?.split('@')[0] || 'User';
       setMyName(displayName);
@@ -627,6 +886,7 @@ export default function App() {
       if (savedTheme) setTheme(savedTheme);
       if (savedLang)  setLang(savedLang);
       if (savedAvatar) setSelectedAvatar(savedAvatar as string);
+      if (savedGoal)  setOnboardingGoal(savedGoal);
       setThemeLoaded(true);
       setAuthChecked(true);
       if (!session.onbDone) { setScreen('onboarding'); return; }
@@ -635,6 +895,10 @@ export default function App() {
         startSubs(session.spaceId, user.uid); // передаём uid явно, т.к. setMyId асинхронный
       }
       setScreen('today');
+      // Обновляем push-токен при каждом холодном старте (токен может протухнуть)
+      requestPermissions().then(granted => {
+        if (granted) registerDeviceToken(user.uid).catch(()=>{});
+      }).catch(()=>{});
       // Подписка — в фоне
       loadSubscription(user.uid).then(sub => {
         setSubscription(sub);
@@ -672,8 +936,16 @@ export default function App() {
     return ()=>sub.remove();
   }, []);
 
+
   // FIX 2: подписки вместо одноразовых запросов — данные приходят мгновенно из кеша
-  const stopSubs = () => { unsubH.current?.(); unsubH.current=null; unsubL.current?.(); unsubL.current=null; unsubM.current?.(); unsubM.current=null; };
+  const stopSubs = () => {
+    unsubH.current?.(); unsubH.current=null;
+    unsubL.current?.(); unsubL.current=null;
+    unsubM.current?.(); unsubM.current=null;
+    unsubReactions.current?.(); unsubReactions.current=null;
+    unsubSpaceNotes.current?.(); unsubSpaceNotes.current=null;
+    unsubConfirmations.current?.(); unsubConfirmations.current=null;
+  };
   const startSubs = (sid:string, currentUid?: string) => {
     stopSubs();
     // currentUid передаётся явно чтобы избежать проблемы с closure — myId может быть
@@ -682,15 +954,26 @@ export default function App() {
 
     unsubH.current = Storage.subscribeHabits(sid, habits => {
       try {
-        const safeHabits = Array.isArray(habits) ? habits.filter(Boolean) : [];
+        const allHabits = Array.isArray(habits) ? habits.filter(Boolean) : [];
+        // Личные привычки партнёра не должны быть видны — показываем только свои + совместные
+        const safeHabits = uid
+          ? allHabits.filter((h:any) => h.isShared || h.ownerId === uid)
+          : allHabits;
+        habitsRef.current = safeHabits;
         setSpace(p => {
           // Если space другого id — игнорируем; если null — создаём (Firestore кэш быстрее setState)
           if (p && p.id !== sid) return p;
           return p ? {...p, habits: safeHabits} : {id:sid, habits:safeHabits, logs:{}, members:[]};
         });
         setTimeout(() => {
-          scheduleHabitNotifications(safeHabits, false, notifEnabled).catch(()=>{});
-        }, 0);
+          setSpace(prev => {
+            const hasP = (prev?.members?.length ?? 0) > 1;
+            Promise.resolve().then(() =>
+              scheduleHabitNotifications(safeHabits, hasP, notifEnabled, lang).catch(()=>{})
+            );
+            return prev;
+          });
+        }, 100);
       } catch (e) { console.warn('[startSubs] habits cb', e); }
     });
 
@@ -714,8 +997,7 @@ export default function App() {
                     const hid = key.replace(expectedSuffix, '');
                     const habit = base.habits.find(h => h.id === hid);
                     if (habit) {
-                      notifyPartnerDone(partner.name, habit.name).catch(()=>{});
-                      requestPartnerNotification().catch(()=>{});
+                      notifyPartnerDone(partner.name, habit.name, habit.id).catch(()=>{});
                     }
                   }
                 });
@@ -733,16 +1015,110 @@ export default function App() {
     unsubM.current = Storage.subscribeMembers(sid, members => {
       try {
         const safeMembers = Array.isArray(members) ? members.filter(Boolean) : [];
+
+        // Детекция кика: список непустой, но текущего пользователя в нём нет
+        if (safeMembers.length > 0 && !safeMembers.find((m: any) => m && m.id === uid)) {
+          stopSubs();
+          Storage.clearSpaceId(uid).catch(() => {});
+          setSpace(null);
+          setScreen('today');
+          toast$(lang === 'en' ? 'You were removed from the shared space' : 'Вас удалили из общего пространства', false);
+          return;
+        }
+
         setSpace(p => {
           if (p && p.id !== sid) return p;
           return p ? {...p, members: safeMembers} : {id:sid, habits:[], logs:{}, members:safeMembers};
         });
         setTimeout(() => {
           const hasPartnerNow = safeMembers.length > 1;
-          scheduleAppReminder(hasPartnerNow, notifEnabled).catch(()=>{});
-          scheduleMorningMotivation(hasPartnerNow, notifEnabled).catch(()=>{});
+          scheduleAppReminder(hasPartnerNow, notifEnabled, notifTimeEvening).catch(()=>{});
+          scheduleMorningMotivation(hasPartnerNow, notifEnabled, notifTimeMorning).catch(()=>{});
+          // Nudge: мягкое напоминание о партнёре вечером (opt-in через partnerNotif)
+          if (hasPartnerNow) {
+            const partner = safeMembers.find((m: any) => m && m.id !== (uid || myId));
+            if (partner?.name) {
+              scheduleNudgeNotification(partner.name, partnerNotif && notifEnabled).catch(()=>{});
+            }
+          } else {
+            scheduleNudgeNotification('', false).catch(()=>{});
+          }
         }, 0);
       } catch (e) { console.warn('[startSubs] members cb', e); }
+    });
+
+
+    unsubSpaceNotes.current = Storage.subscribeSpaceNotes(sid, notes => {
+      setSpaceNotes(notes);
+    });
+
+    unsubConfirmations.current = Storage.subscribeConfirmations(sid, data => {
+      setConfirmations(data);
+
+      // Показываем локальное уведомление когда партнёр запросил подтверждение
+      data.forEach((c: any) => {
+        const key = `${c.habitId}_${c.date}_${c.fromId}`;
+        const isNewRequest = !c.confirmedBy && c.fromId !== (uid || myId);
+        if (isNewRequest && !prevConfirmKeys.current.has(key)) {
+          prevConfirmKeys.current.add(key);
+          try {
+            const N = require('expo-notifications');
+            if (N?.scheduleNotificationAsync) {
+              const habitName = habitsRef.current.find((h: any) => h.id === c.habitId)?.name ?? '';
+              N.scheduleNotificationAsync({
+                content: {
+                  title: isEn ? '✋ Confirmation needed' : '✋ Требуется подтверждение',
+                  body: habitName
+                    ? (isEn ? `Confirm: ${habitName}` : `Подтвердить: ${habitName}`)
+                    : (isEn ? 'Your partner needs your confirmation' : 'Партнёр ожидает вашего подтверждения'),
+                  sound: 'default',
+                  data: { type: 'confirm_request', habitId: c.habitId },
+                  ...(require('react-native').Platform.OS === 'android' ? { channelId: 'partner' } : {}),
+                },
+                trigger: null,
+              }).catch(() => {});
+            }
+          } catch {}
+        } else {
+          prevConfirmKeys.current.add(key);
+        }
+      });
+    });
+
+    // Реакции партнёра на привычки
+    unsubReactions.current = Storage.subscribeReactions(sid, incoming => {
+      setReactions(incoming);
+
+      // Определяем новые реакции от партнёра и показываем локальный пуш
+      incoming.forEach(r => {
+        const key = `${r.habitId}_${r.date}_${r.fromId}`;
+        if (!prevReactionKeys.current.has(key) && r.fromId !== (uid || myId)) {
+          prevReactionKeys.current.add(key);
+          // Локальное уведомление — пользователь видит даже если приложение открыто
+          try {
+            const N = require('expo-notifications');
+            if (N?.scheduleNotificationAsync) {
+              const habit = habitsRef.current.find((h: any) => h.id === r.habitId);
+              const keyToEmoji: Record<string,string> = {
+                heart:'❤️', lightning:'⚡', star:'★', crown:'♛', fire:'🔥',
+              };
+              const displayEmoji = keyToEmoji[r.emoji] || r.emoji;
+              N.scheduleNotificationAsync({
+                content: {
+                  title: `${r.fromName} отреагировал ${displayEmoji}`,
+                  body: habit?.name ?? '',
+                  sound: 'default',
+                  data: { type: 'reaction', habitId: r.habitId },
+                  ...(require('react-native').Platform.OS === 'android' ? { channelId: 'partner' } : {}),
+                },
+                trigger: null,
+              }).catch(() => {});
+            }
+          } catch {}
+        } else {
+          prevReactionKeys.current.add(key);
+        }
+      });
     });
   };
 
@@ -820,6 +1196,45 @@ export default function App() {
     const key=`${hid}_${todayS()}_${myId}`;
     const l={...(space?.logs||{})};
     const wasLogged = !!l[key];
+    const habit = (space?.habits||[]).find((h:any)=>h.id===hid);
+    const partner = space?.members?.find((m:any)=>m&&m.id!==myId);
+
+    // requirePartnerConfirm: отметка создаёт pending подтверждение; повторный тап — отменяет pending
+    if (habit?.requirePartnerConfirm && partner && space?.id && myId !== 'guest') {
+      const pending = confirmations.find(
+        (c:any) => c.habitId===hid && c.date===todayS() && c.fromId===myId && !c.confirmedBy
+      );
+      if (pending && !wasLogged) {
+        // Отменяем pending — удаляем запись подтверждения
+        try {
+          const { deleteDoc, doc } = require('firebase/firestore');
+          const { db } = require('./src/firebase');
+          const key = `${hid}_${todayS()}_confirm`;
+          await deleteDoc(doc(db, 'spaces', space.id, 'confirmations', key)).catch(()=>{});
+        } catch {}
+        toast$(isEn ? 'Request cancelled' : 'Запрос отменён', true);
+        return;
+      }
+      if (!wasLogged && !pending) {
+        const newPending: import('./src/store').HabitConfirmation = {
+          habitId: hid, date: todayS(), fromId: myId, confirmedBy: '', ts: Date.now(),
+        };
+        await Storage.saveConfirmation(space.id, newPending).catch(()=>{});
+        sendPartnerNotification({
+          spaceId: space.id, toUid: partner.id, fromName: myName,
+          habitName: habit.name, habitId: hid, lang,
+          isConfirmRequest: true,
+          customBody: isEn
+            ? `${myName} asks you to confirm: ${habit.name}`
+            : `${myName} просит подтвердить: ${habit.name}`,
+        }).catch(()=>{});
+        toast$(isEn
+          ? `Waiting for ${partner.name}'s confirmation`
+          : `Ожидает подтверждения от ${partner.name}`, true);
+        return;
+      }
+    }
+
     if(l[key]) delete l[key]; else l[key]=true;
     // Хаптика
     if (hapticsEnabled) {
@@ -832,7 +1247,7 @@ export default function App() {
     // Вечернее напоминание — если есть невыполненные привычки
     const todayDow2 = (new Date().getDay()+6)%7;
     const pendingCount = (space?.habits||[])
-      .filter((h:any)=>!h.archived && h.days?.includes(todayDow2) && !l[`${h.id}_${todayS()}_${myId}`]).length;
+      .filter((h:any)=>h.days?.includes(todayDow2) && !l[`${h.id}_${todayS()}_${myId}`]).length;
     scheduleEveningReminder(pendingCount, notifEnabled).catch(()=>{});
     // Показываем modal для заметки если включено и это отметка (не снятие)
     if (!wasLogged) {
@@ -841,6 +1256,7 @@ export default function App() {
         setNoteText('');
         setNoteModal({habitId:hid, date:todayS()});
       }
+      // Фото добавляется явно через кнопку на карточке — не автоматически
     }
     // Хаптика: короткий импульс при отметке, двойной при снятии
     // Оптимистичное обновление — сразу обновляем UI без ожидания Firestore
@@ -849,6 +1265,23 @@ export default function App() {
     Storage.set('offline_logs_' + (space?.id||''), l).catch(()=>{});
     try {
       saveL(l).catch(e => console.warn('[toggle saveL]', e)); // fire and forget
+      // Отправляем FCM push партнёру если отметили (не сняли) привычку
+      if (!wasLogged) {
+        const partner = space?.members?.find(m => m && m.id !== myId);
+        if (partner && space?.id && myId !== 'guest') {
+          const habit = space?.habits?.find(h => h.id === hid);
+          if (habit) {
+            sendPartnerNotification({
+              spaceId: space.id,
+              toUid: partner.id,
+              fromName: myName,
+              habitName: habit.name,
+              habitId: hid,
+              lang,
+            }).catch(() => {});
+          }
+        }
+      }
       // Обновляем badge и серию
       const currentHabit = space?.habits?.find(h=>h.id===hid);
       if (currentHabit) {
@@ -861,7 +1294,7 @@ export default function App() {
       const todayHabits = (space?.habits||[]).filter(h=>h.days?.includes(dow2));
       const doneCnt = todayHabits.filter(h=>isLogged(h.id,myId,l)).length;
       const remaining = Math.max(0, todayHabits.length - doneCnt);
-      Notifications.setBadgeCountAsync(remaining).catch(()=>{});
+      _setBadgeCount(remaining).catch(()=>{});
       // Проверяем новые достижения — totalDoneNow объявляется ЗДЕСЬ, до использования
       const totalDoneNow = Object.keys(l).filter(k=>k.includes(`_${myId}`)).length;
       // Запросить отзыв после 5 и 25 выполнений
@@ -916,7 +1349,12 @@ export default function App() {
       const allHabits = isEdit
         ? (cs.habits||[]).map(x=>x.id===habitId?newHabit:x)
         : [...(cs.habits||[]), newHabit];
-      scheduleHabitTimeNotifications(allHabits).catch(()=>{});
+      scheduleHabitTimeNotifications(
+        allHabits,
+        (cs.members?.length ?? 0) > 1,
+        notifEnabled,
+        lang,
+      ).catch(()=>{});
       // Оптимистичное обновление: применяем сразу, не ждём Firestore listener
       setSpace(prev => {
         if (!prev) return {id:cs.id,habits:allHabits,logs:{},members:[]};
@@ -926,7 +1364,7 @@ export default function App() {
         return {...prev, habits:updated};
       });
       toast$(isEdit?(isEn?'Saved ':'Сохранено '):(isEn?'Added ':'Добавлено '));
-      setNh(blank);setEditH(null);
+      setNh(blank);setEditH(null);setReminderTimePicker(null);
       // Используем animateScreenChange чтобы opacity вернулся в 1
       animateScreenChange('today');
     } catch (e: any) {
@@ -1019,7 +1457,11 @@ export default function App() {
         toast$(isEn ? 'Invite link has expired' : 'Ссылка приглашения истекла', false);
         return;
       }
-      if (space?.id === inv.spaceId) {
+      // Проверяем реальное членство, а не stale spaceId в стейте/кеше.
+      // Кикнутый пользователь может иметь space.id === inv.spaceId (кеш не чистится при кике),
+      // но его нет в space.members — в этом случае нужно разрешить повторное вступление.
+      const isActuallyMember = (space?.members ?? []).some(m => m && m.id === myId);
+      if (space?.id === inv.spaceId && isActuallyMember) {
         toast$(isEn ? 'You are already in this space' : 'Вы уже в этом пространстве', false);
         return;
       }
@@ -1047,6 +1489,8 @@ export default function App() {
       }
 
       await Storage.saveCurrentSpace(inv.spaceId, myId);
+      // Удаляем инвайт после использования — предотвращает повторное вступление
+      Storage.deleteInvite(code).catch(() => {});
 
       // Сначала сбрасываем стейт чисто, только потом подключаем подписки
       // Это предотвращает крэш от одновременных setSpace из нескольких подписок
@@ -1054,19 +1498,21 @@ export default function App() {
       await new Promise(r => setTimeout(r, 50)); // даём React смыть рендер
       startSubs(inv.spaceId);
 
-      // Навигируем на экран Friends чтобы пользователь увидел результат
-      animateScreenChange('friends');
-
-      // Показываем Alert — он точно не потеряется в отличие от тоста
-      setTimeout(() => {
-        Alert.alert(
-          isEn ? '🎉 Joined!' : '🎉 Присоединился!',
-          isEn
-            ? 'You are now tracking habits together!'
-            : 'Теперь вы вместе отслеживаете привычки!',
-          [{ text: isEn ? 'Great!' : 'Отлично!', style: 'default' }]
-        );
-      }, 600);
+      // Загружаем данные пространства чтобы показать онбординг партнёра
+      try {
+        const [partnerHabits, partnerMembers] = await Promise.all([
+          Storage.getHabits(inv.spaceId),
+          Storage.getMembers(inv.spaceId),
+        ]);
+        const owner = (partnerMembers || []).find((m: Member) => m && m.id !== myId);
+        setPartnerWelcome({
+          partnerName: owner?.name || (isEn ? 'Partner' : 'Партнёр'),
+          habitCount: (partnerHabits || []).length,
+        });
+      } catch {
+        // Фолбэк — просто навигируем
+        animateScreenChange('friends');
+      }
 
     } catch (e: any) {
       if (e?.message === 'LIMIT_REACHED') {
@@ -1125,6 +1571,73 @@ export default function App() {
     </View>
   );
 
+  // ── Онбординг партнёра — показывается после присоединения к чужому пространству ──
+  if (partnerWelcome) return (
+    <View style={{ flex: 1, backgroundColor: tk.bg, paddingTop: TOP,
+      paddingHorizontal: 28, paddingBottom: 40, justifyContent: 'space-between' }}>
+      <View style={{ flex: 1, justifyContent: 'center', gap: 28 }}>
+        {/* Иллюстрация */}
+        <View style={{ alignItems: 'center', gap: 20 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 0 }}>
+            <View style={{ width: 64, height: 64, borderRadius: 32,
+              backgroundColor: tk.text2, alignItems: 'center', justifyContent: 'center',
+              borderWidth: 2, borderColor: tk.bg }}>
+              <Text style={{ fontSize: 24, color: tk.bg, fontWeight: '700' }}>
+                {partnerWelcome.partnerName[0]?.toUpperCase() || '?'}
+              </Text>
+            </View>
+            <View style={{ width: 32, height: 2, backgroundColor: tk.border }} />
+            <Text style={{ fontSize: 24 }}>🤝</Text>
+            <View style={{ width: 32, height: 2, backgroundColor: tk.border }} />
+            <View style={{ width: 64, height: 64, borderRadius: 32,
+              backgroundColor: tk.text, alignItems: 'center', justifyContent: 'center',
+              borderWidth: 2, borderColor: tk.bg }}>
+              <Text style={{ fontSize: 24, color: tk.bg, fontWeight: '700' }}>
+                {myName[0]?.toUpperCase() || 'Я'}
+              </Text>
+            </View>
+          </View>
+          <Text style={{ fontSize: 28, fontWeight: '500', color: tk.text,
+            textAlign: 'center', letterSpacing: -0.5, lineHeight: 34 }}>
+            {'Привет!\nТы в команде с '}
+            <Text style={{ color: tk.accent }}>{partnerWelcome.partnerName}</Text>
+          </Text>
+        </View>
+
+        {/* Факты о пространстве */}
+        <View style={{ gap: 10 }}>
+          {[
+            { e: '📋', t: `${partnerWelcome.habitCount} ${partnerWelcome.habitCount === 1 ? 'привычка' : partnerWelcome.habitCount < 5 ? 'привычки' : 'привычек'} уже создано`, s: 'Добавь свои или выполняй общие' },
+            { e: '👁', t: 'Видите прогресс друг друга', s: 'В реальном времени на главном экране' },
+            { e: '🔥', t: 'Совместная серия начинается', s: 'Выполняйте привычки каждый день вместе' },
+            { e: '💬', t: 'Реакции одним нажатием', s: 'Прямо из уведомления — 👍 ❤️ 🔥' },
+          ].map(({ e, t, s }) => (
+            <View key={t} style={{ flexDirection: 'row', gap: 14,
+              backgroundColor: tk.bg2, borderRadius: 16,
+              borderWidth: 1, borderColor: tk.border,
+              paddingVertical: 12, paddingHorizontal: 16, alignItems: 'center' }}>
+              <Text style={{ fontSize: 22 }}>{e}</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 13, fontWeight: '600', color: tk.text }}>{t}</Text>
+                <Text style={{ fontSize: 11, color: tk.text3, marginTop: 2 }}>{s}</Text>
+              </View>
+            </View>
+          ))}
+        </View>
+      </View>
+
+      <TouchableOpacity
+        onPress={() => { setPartnerWelcome(null); animateScreenChange('today'); }}
+        activeOpacity={0.85}
+        style={{ backgroundColor: tk.text, borderRadius: 16, paddingVertical: 16,
+          alignItems: 'center', marginTop: 24 }}>
+        <Text style={{ fontSize: 16, fontWeight: '600', color: tk.bg }}>
+          {isEn ? "Let's go!" : 'Погнали вместе!'}
+        </Text>
+      </TouchableOpacity>
+    </View>
+  );
+
   if (screen==='onboarding') return (
     <OnboardingScreen tk={tk} lang={lang} onDone={async(starterHabits)=>{
       await Storage.saveOnboarding();
@@ -1149,7 +1662,14 @@ export default function App() {
         } catch(e) { console.warn('[onDone]', e); }
         setScreen('today');
       } else setScreen('auth');
-    }}/>
+    }}
+    onInvite={() => {
+      // После онбординга сразу ведём на экран инвайта
+      setScreen('today');
+      // Небольшая задержка чтобы today успел отрендериться
+      setTimeout(() => animateScreenChange('invite'), 300);
+    }}
+    />
   );
 
   if (screen==='auth') return (
@@ -1158,11 +1678,14 @@ export default function App() {
         isRegistering.current = true;
         try {
           setupNotificationChannel().catch(()=>{});
+          // Запрашиваем разрешение — без него push не работает
+          requestPermissions().then(granted => {
+            if (granted) registerDeviceToken(uid).catch(()=>{});
+          }).catch(()=>{});
           setMyId(uid);
           setMyName(name);
           await Storage.saveName(name);
           initPurchases(uid).catch(()=>{});
-          registerDeviceToken(uid).catch(()=>{});
           if (isNew) {
             // Новый пользователь — очищаем весь локальный кеш пространства (per-user и legacy)
             await Storage.clearSpaceId(uid);
@@ -1327,27 +1850,33 @@ export default function App() {
       onHapticsToggle={async v=>{setHapticsEnabled(v);await Storage.set('haptics_enabled',v);}}
       autoTheme={autoTheme}
       onAutoTheme={async v=>{setAutoTheme(v);await Storage.saveTheme(v?'auto':(theme==='dark'?'dark':'light'));}}
-      onNotifTimeMorning={async(t)=>{setNotifTimeMorning(t);await Storage.saveNotifTimeMorning(t);scheduleHabitNotifications(habits,(space?.members?.length??0)>1,notifEnabled).catch(()=>{});}}
-      onNotifTimeEvening={async(t)=>{setNotifTimeEvening(t);await Storage.saveNotifTimeEvening(t);scheduleHabitNotifications(habits,(space?.members?.length??0)>1,notifEnabled).catch(()=>{});}}
+      onNotifTimeMorning={async(t)=>{setNotifTimeMorning(t);await Storage.saveNotifTimeMorning(t);scheduleMorningMotivation((space?.members?.length??0)>1,notifEnabled,t).catch(()=>{});}}
+      onNotifTimeEvening={async(t)=>{setNotifTimeEvening(t);await Storage.saveNotifTimeEvening(t);scheduleAppReminder((space?.members?.length??0)>1,notifEnabled,t).catch(()=>{});}}
       habits={habits}
       onNotifToggle={async(v)=>{
         setNotifEnabled(v);
         await Storage.set('notif_enabled',v);
         const hasP = (space?.members?.length ?? 0) > 1;
         const habits2 = space?.habits || [];
-        scheduleHabitNotifications(habits2, hasP, v).catch(()=>{});
-        scheduleAppReminder(hasP, v).catch(()=>{});
-        scheduleMorningMotivation(hasP, v).catch(()=>{});
+        scheduleHabitNotifications(habits2, hasP, v, lang).catch(()=>{});
+        scheduleAppReminder(hasP, v, notifTimeEvening).catch(()=>{});
+        scheduleMorningMotivation(hasP, v, notifTimeMorning).catch(()=>{});
       }}
       onPartnerNotifToggle={async(v)=>{setPartnerNotif(v);await Storage.set('partner_notif',v);}}
       onBack={()=>setScreen('profile')}
-      onDeleteAccount={async()=>{ if(isGuest()){setMyId('');setMyName('');setScreen('auth');return;} const uid=myId;stopSubs();await auth.signOut();setSpace(null);setMyId('');setMyName('');setScreen('auth');}}/>
+      onDeleteAccount={async()=>{ if(isGuest()){setMyId('');setMyName('');setScreen('auth');return;} const uid=myId;stopSubs();sessionEstablished.current=false;await auth.signOut();setSpace(null);setMyId('');setMyName('');setScreen('auth');}}/>
   );
 
-  if (screen==='mood') return (
-    <MoodScreen myId={myId} lang={lang} tk={tk}
-      onBack={() => animateScreenChange('profile', 'back')} />
-  );
+  if (screen==='mood') {
+    const moodPartner = members.find(m => m && m.id !== myId);
+    return (
+      <MoodScreen myId={myId} lang={lang} tk={tk}
+        partnerId={moodPartner?.id}
+        partnerName={moodPartner?.name}
+        spaceId={space?.id}
+        onBack={() => animateScreenChange('profile', 'back')} />
+    );
+  }
 
   if (screen==='stats') return (
     <View style={{flex:1,paddingTop:TOP,backgroundColor:tk.bg}}>
@@ -1396,11 +1925,24 @@ export default function App() {
         onBack={()=>animateScreenChange('calendar')}
         onToggleTheme={async()=>{const n=theme==='dark'?'light':'dark';await Storage.saveTheme(n);setTheme(n);}}
         onLanguageChange={async l=>{setLang(l);await Storage.saveLanguage(l);}}
-        onNameChange={name=>setMyName(name)}
+        onNameChange={async name=>{
+          setMyName(name);
+          // Обновляем имя в members пространства — партнёр увидит новое имя
+          if (space?.id && myId && myId !== 'guest') {
+            try {
+              const updatedMembers = (space.members || []).map(m =>
+                m.id === myId ? { ...m, name } : m
+              );
+              await Storage.setMembers(space.id, updatedMembers);
+              setSpace(prev => prev ? { ...prev, members: updatedMembers } : prev);
+            } catch (e) { console.warn('[onNameChange] members update', e); }
+          }
+        }}
         onLogout={async()=>{
           if (isGuest()) { setMyId(''); setMyName(''); setScreen('auth'); return; }
           const uid=myId;
           stopSubs();
+          sessionEstablished.current = false; // сбрасываем — реальный выход
           await auth.signOut();
           await Storage.clearSpaceId(uid);
           await Storage.set(`onboarding_${uid}`, null);
@@ -1417,7 +1959,7 @@ export default function App() {
       {TAB_SCREENS.includes(screen) && <BottomNav screen={screen} onPress={s=>s==='add'?setScreen('addHabit'):animateScreenChange(s as Screen)} tk={tk} lang={lang} theme={theme}
       friendsBadge={members.length>1 ? members.filter(m=>m&&m.id!==myId).filter(m=>{
         const dow=todayDow();
-        const todayH=(space?.habits||[]).filter(h=>!h.archived && h.days?.includes(dow));
+        const todayH=(space?.habits||[]).filter(h=>h.days?.includes(dow));
         return todayH.some(h=>isLogged(h.id,m.id,logs));
       }).length : 0}/>}
     </View>
@@ -1437,11 +1979,11 @@ export default function App() {
                   isEn?'You have unsaved changes':'У вас есть несохранённые изменения',
                   [
                     {text:isEn?'Keep editing':'Продолжить редактирование',style:'cancel'},
-                    {text:isEn?'Discard':'Отменить',style:'destructive',onPress:()=>{animateScreenChange(backTarget,'back');setEditH(null);setNh(blank);setShowTimePicker(false);}},
+                    {text:isEn?'Discard':'Отменить',style:'destructive',onPress:()=>{animateScreenChange(backTarget,'back');setEditH(null);setNh(blank);setShowTimePicker(false);setReminderTimePicker(null);}},
                   ]
                 );
               } else {
-                animateScreenChange(backTarget,'back');setEditH(null);setNh(blank);setShowTimePicker(false);
+                animateScreenChange(backTarget,'back');setEditH(null);setNh(blank);setShowTimePicker(false);setReminderTimePicker(null);
               }
             }}
               style={{width:36,height:36,borderRadius:10,backgroundColor:tk.bg2,borderWidth:1,borderColor:tk.border,alignItems:'center',justifyContent:'center'}}>
@@ -1498,6 +2040,97 @@ export default function App() {
           <TextInput value={nh.name} onChangeText={v=>setNh(p=>({...p,name:v}))}
             placeholder={isEn?'Morning run':'Утренняя пробежка'} placeholderTextColor={tk.text3}
             style={{backgroundColor:tk.bg2,borderWidth:1,borderColor:tk.border,borderRadius:12,padding:13,fontSize:13,color:tk.text,marginBottom:20}}/>
+
+          {/* ── Тип привычки: Только я / Совместная ── */}
+          {(space?.members||[]).length > 1 && (
+            <View style={{marginBottom:20}}>
+              <Text style={{fontSize:10,color:tk.text3,letterSpacing:1,
+                textTransform:'uppercase',fontWeight:'400',marginBottom:10}}>
+                {isEn?'Who tracks it?':'Кто отслеживает?'}
+              </Text>
+              <View style={{flexDirection:'row',gap:8}}>
+                {/* Только я */}
+                <TouchableOpacity
+                  onPress={()=>setNh((p:any)=>({...p,isShared:false}))}
+                  activeOpacity={0.75}
+                  style={{flex:1,borderRadius:14,borderWidth:1.5,padding:14,
+                    alignItems:'center',gap:6,
+                    borderColor:!(nh as any).isShared?tk.text:tk.border,
+                    backgroundColor:!(nh as any).isShared?tk.bg3:tk.bg2}}>
+                  <Svg width={24} height={24} viewBox="0 0 24 24" fill="none">
+                    <Circle cx="12" cy="8" r="4" stroke={!(nh as any).isShared?tk.text:tk.text3} strokeWidth="1.7"/>
+                    <Path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"
+                      stroke={!(nh as any).isShared?tk.text:tk.text3} strokeWidth="1.7" strokeLinecap="round"/>
+                  </Svg>
+                  <Text style={{fontSize:13,fontWeight:'600',
+                    color:!(nh as any).isShared?tk.text:tk.text3}}>
+                    {isEn?'Just me':'Только я'}
+                  </Text>
+                  <Text style={{fontSize:10,color:tk.text3,textAlign:'center'}}>
+                    {isEn?'My personal habit':'Моя личная привычка'}
+                  </Text>
+                </TouchableOpacity>
+
+                {/* Совместная */}
+                <TouchableOpacity
+                  onPress={()=>setNh((p:any)=>({...p,isShared:true}))}
+                  activeOpacity={0.75}
+                  style={{flex:1,borderRadius:14,borderWidth:1.5,padding:14,
+                    alignItems:'center',gap:6,
+                    borderColor:(nh as any).isShared?tk.text:tk.border,
+                    backgroundColor:(nh as any).isShared?tk.bg3:tk.bg2}}>
+                  <Svg width={24} height={24} viewBox="0 0 24 24" fill="none">
+                    <Circle cx="9" cy="8" r="3.5" stroke={(nh as any).isShared?tk.text:tk.text3} strokeWidth="1.7"/>
+                    <Path d="M3 20c0-3.5 2.7-6 6-6s6 2.5 6 6"
+                      stroke={(nh as any).isShared?tk.text:tk.text3} strokeWidth="1.7" strokeLinecap="round"/>
+                    <Circle cx="17" cy="8" r="3" stroke={(nh as any).isShared?tk.text2:tk.text3} strokeWidth="1.5"/>
+                    <Path d="M17 14c2 .5 4 2.5 4 6"
+                      stroke={(nh as any).isShared?tk.text2:tk.text3} strokeWidth="1.5" strokeLinecap="round"/>
+                  </Svg>
+                  <Text style={{fontSize:13,fontWeight:'600',
+                    color:(nh as any).isShared?tk.text:tk.text3}}>
+                    {isEn?'Together':'Вместе'}
+                  </Text>
+                  <Text style={{fontSize:10,color:tk.text3,textAlign:'center'}}>
+                    {isEn?'Both track this habit':'Оба отслеживают'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* Доп опции — только в режиме "вместе" */}
+              {(nh as any).isShared && (
+                <View style={{marginTop:8,gap:6}}>
+                  {([
+                    {key:'requirePartnerConfirm', label:isEn?'Partner must confirm':'Партнёр должен подтвердить', sub:isEn?'They see a confirm button on the habit':'Партнёр увидит кнопку подтверждения'},
+                  ] as {key:string;label:string;sub:string}[]).map(opt=>{
+                    const isOn=!!(nh as any)[opt.key];
+                    return (
+                      <TouchableOpacity key={opt.key}
+                        onPress={()=>setNh((p:any)=>({...p,[opt.key]:!p[opt.key]}))}
+                        style={{flexDirection:'row',alignItems:'center',gap:10,
+                          paddingVertical:10,paddingHorizontal:12,borderRadius:12,
+                          borderWidth:1,borderColor:isOn?tk.text2:tk.border,
+                          backgroundColor:isOn?tk.bg3:tk.bg2}}>
+                        <View style={{width:20,height:20,borderRadius:5,borderWidth:1.5,
+                          borderColor:isOn?tk.accent:tk.text3,
+                          backgroundColor:isOn?tk.accent:'transparent',
+                          alignItems:'center',justifyContent:'center'}}>
+                          {isOn&&<Svg width={10} height={10} viewBox="0 0 24 24" fill="none">
+                            <Path d="M5 13l4 4L19 7" stroke="#fff" strokeWidth="2.5" strokeLinecap="round"/>
+                          </Svg>}
+                        </View>
+                        <View style={{flex:1}}>
+                          <Text style={{fontSize:13,color:isOn?tk.text:tk.text2}}>{opt.label}</Text>
+                          <Text style={{fontSize:10,color:tk.text3,marginTop:1}}>{opt.sub}</Text>
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              )}
+            </View>
+          )}
+
           {/* Категория */}
           {/* Тип привычки */}
           <Text style={{fontSize:10,color:tk.text3,letterSpacing:1,textTransform:'uppercase',fontWeight:'400',marginBottom:12,marginTop:4}}>
@@ -1505,15 +2138,15 @@ export default function App() {
           </Text>
           <View style={{flexDirection:'row',gap:10,marginBottom:20}}>
             {([
-              {t:'good', color:'#8cb8a0', ru:'Полезная',   en:'Build habit',
+              {t:'good', color:'#8cb8a0', ru:'Полезная',   en:'Build habit',   sub_ru:'Отмечай каждый день',        sub_en:'Check off daily',
                path:'M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z'},
-              {t:'quit', color:'#c8a0a0', ru:'Избавиться', en:'Quit habit',
+              {t:'quit', color:'#c8a0a0', ru:'Избавиться', en:'Quit habit',    sub_ru:'Считает дни без срывов',      sub_en:'Counts days without',
                path:'M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm5 13H7v-2h10v2z'},
-            ] as any[]).map(({t,color,ru,en,path})=>{
+            ] as any[]).map(({t,color,ru,en,sub_ru,sub_en,path})=>{
               const sel = (nh as any).type===t;
               return (
                 <TouchableOpacity key={t} onPress={()=>setNh((p:any)=>({...p,type:t}))}
-                  style={{flex:1,padding:14,borderRadius:16,borderWidth:1.5,alignItems:'center',gap:8,
+                  style={{flex:1,padding:14,borderRadius:16,borderWidth:1.5,alignItems:'center',gap:6,
                     borderColor:sel?color:tk.border,
                     backgroundColor:sel?(color+'18'):tk.bg2}}>
                   <View style={{width:40,height:40,borderRadius:12,
@@ -1527,10 +2160,14 @@ export default function App() {
                   <Text style={{fontSize:12,fontWeight:'500',color:sel?color:tk.text3}}>
                     {isEn?en:ru}
                   </Text>
+                  <Text style={{fontSize:10,color:tk.text3,textAlign:'center',lineHeight:13}}>
+                    {isEn?sub_en:sub_ru}
+                  </Text>
                 </TouchableOpacity>
               );
             })}
           </View>
+
 
           {/* Рутина */}
           <Text style={{fontSize:10,color:tk.text3,letterSpacing:1,textTransform:'uppercase',fontWeight:'400',marginBottom:12}}>
@@ -1572,14 +2209,22 @@ export default function App() {
                 </Svg>
               )}
             </View>
-            <Text style={{flex:1,fontSize:14,fontWeight:'400',color:tk.text}}>
-              {isEn?'Ask for a note on completion':'Запрашивать заметку при выполнении'}
-            </Text>
+            <View style={{flex:1}}>
+              <Text style={{fontSize:14,fontWeight:'400',color:tk.text}}>
+                {isEn?'Ask for a note on completion':'Запрашивать заметку при выполнении'}
+              </Text>
+              <Text style={{fontSize:11,color:tk.text3,marginTop:2}}>
+                {isEn?'A text field appears after each check-in':'После каждой отметки появится поле для текста'}
+              </Text>
+            </View>
           </TouchableOpacity>
 
           {/* Таймер */}
-          <Text style={{fontSize:10,color:tk.text3,letterSpacing:1,textTransform:'uppercase',fontWeight:'400',marginBottom:10}}>
+          <Text style={{fontSize:10,color:tk.text3,letterSpacing:1,textTransform:'uppercase',fontWeight:'400',marginBottom:4}}>
             {isEn?'Timer (optional)':'Таймер (необязательно)'}
+          </Text>
+          <Text style={{fontSize:11,color:tk.text3,marginBottom:10}}>
+            {isEn?'Countdown starts when you open the habit':'Обратный отсчёт запустится при открытии привычки'}
           </Text>
           <View style={{flexDirection:'row',flexWrap:'wrap',gap:8,marginBottom:20}}>
             {([[0,'—'],[300,'5 мин'],[600,'10 мин'],[900,'15 мин'],[1200,'20 мин'],[1800,'30 мин']] as [number,string][]).map(([sec,label])=>(
@@ -1666,6 +2311,97 @@ export default function App() {
               tk={tk}
             />
           )}
+
+          {/* Интервальные напоминания */}
+          <Text style={{fontSize:10,color:tk.text3,letterSpacing:1,textTransform:'uppercase',fontWeight:'400',marginBottom:10}}>
+            {isEn?'Repeat reminder':'Повторять напоминание'}
+          </Text>
+          <View style={{flexDirection:'row',flexWrap:'wrap',gap:6,marginBottom:8}}>
+            {([0,1,2,3,4,6] as number[]).map(h=>(
+              <TouchableOpacity key={h} onPress={()=>setNh((p:any)=>({...p,reminderInterval:h}))}
+                style={{paddingHorizontal:12,paddingVertical:7,borderRadius:10,
+                  borderWidth:1.5,
+                  borderColor:(nh as any).reminderInterval===h?tk.text:tk.border,
+                  backgroundColor:(nh as any).reminderInterval===h?tk.text:tk.bg2}}>
+                <Text style={{fontSize:12,fontWeight:'500',
+                  color:(nh as any).reminderInterval===h?tk.bg:tk.text3}}>
+                  {h===0?(isEn?'Off':'Выкл'):isEn?`Every ${h}h`:`Каждые ${h}ч`}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          {(nh as any).reminderInterval > 0 && (
+            <View style={{marginBottom:20}}>
+              <View style={{flexDirection:'row',gap:10,alignItems:'center',marginBottom:8}}>
+                <Text style={{fontSize:12,color:tk.text3}}>{isEn?'From':'С'}</Text>
+                <TouchableOpacity
+                  onPress={()=>setReminderTimePicker('from')}
+                  style={{flex:1,backgroundColor:tk.bg2,borderWidth:1,
+                    borderColor:reminderTimePicker==='from'?tk.text:tk.border,
+                    borderRadius:10,padding:10,alignItems:'center'}}>
+                  <Text style={{fontSize:13,color:tk.text}}>{(nh as any).reminderFrom||'08:00'}</Text>
+                </TouchableOpacity>
+                <Text style={{fontSize:12,color:tk.text3}}>{isEn?'to':'до'}</Text>
+                <TouchableOpacity
+                  onPress={()=>setReminderTimePicker('to')}
+                  style={{flex:1,backgroundColor:tk.bg2,borderWidth:1,
+                    borderColor:reminderTimePicker==='to'?tk.text:tk.border,
+                    borderRadius:10,padding:10,alignItems:'center'}}>
+                  <Text style={{fontSize:13,color:tk.text}}>{(nh as any).reminderTo||'22:00'}</Text>
+                </TouchableOpacity>
+              </View>
+              {/* Инлайн-сетка часов */}
+              {reminderTimePicker && (
+                <View style={{backgroundColor:tk.bg2,borderRadius:14,borderWidth:1,
+                  borderColor:tk.border,padding:10}}>
+                  <Text style={{fontSize:10,color:tk.text3,marginBottom:8,letterSpacing:1,textTransform:'uppercase'}}>
+                    {reminderTimePicker==='from'?(isEn?'Start time':'Начало'):(isEn?'End time':'Конец')}
+                  </Text>
+                  <View style={{flexDirection:'row',flexWrap:'wrap',gap:6}}>
+                    {Array.from({length:24},(_,h)=>`${String(h).padStart(2,'0')}:00`).map(t=>{
+                      const cur = reminderTimePicker==='from'
+                        ? (nh as any).reminderFrom||'08:00'
+                        : (nh as any).reminderTo||'22:00';
+                      const active = cur===t;
+                      return (
+                        <TouchableOpacity key={t}
+                          onPress={()=>{
+                            setNh((p:any)=>({...p,
+                              [reminderTimePicker==='from'?'reminderFrom':'reminderTo']:t}));
+                            setReminderTimePicker(null);
+                          }}
+                          style={{paddingHorizontal:10,paddingVertical:6,borderRadius:8,
+                            borderWidth:1,
+                            borderColor:active?tk.text:tk.border,
+                            backgroundColor:active?tk.text:tk.bg}}>
+                          <Text style={{fontSize:12,color:active?tk.bg:tk.text3,fontWeight:active?'600':'400'}}>{t}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                  <TouchableOpacity onPress={()=>setReminderTimePicker(null)}
+                    style={{marginTop:10,alignItems:'center'}}>
+                    <Text style={{fontSize:12,color:tk.text3}}>{isEn?'Close':'Закрыть'}</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+              {/* Быстрые пресеты */}
+              {!reminderTimePicker && (
+                <View style={{flexDirection:'row',gap:6}}>
+                  {[['08:00','22:00'],['09:00','21:00'],['06:00','23:00']].map(([f,t])=>(
+                    <TouchableOpacity key={f}
+                      onPress={()=>setNh((p:any)=>({...p,reminderFrom:f,reminderTo:t}))}
+                      style={{paddingHorizontal:10,paddingVertical:5,borderRadius:8,
+                        borderWidth:1,borderColor:tk.border,backgroundColor:tk.bg2}}>
+                      <Text style={{fontSize:10,color:tk.text3}}>{f.slice(0,5)}–{t.slice(0,5)}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+            </View>
+          )}
+          {(nh as any).reminderInterval === 0 && <View style={{marginBottom:20}}/>}
+
           <Text style={{fontSize:10,color:tk.text3,letterSpacing:1,textTransform:'uppercase',fontWeight:'400',marginBottom:8}}>
             {isEn?'Description':'Описание'} <Text style={{textTransform:'none',fontSize:9,color:tk.text3}}>({isEn?'optional':'необязательно'})</Text>
           </Text>
@@ -1808,7 +2544,7 @@ export default function App() {
               <Text style={{color:tk.text,fontSize:16}}>←</Text>
             </TouchableOpacity>
             <Text style={{fontSize:20,fontWeight:'500',color:tk.text,letterSpacing:-0.3,flex:1}}>{isEn?'Details':'Подробности'}</Text>
-            {own&&(<TouchableOpacity onPress={()=>{setEditH(h);setNh({name:h.name,icon:h.icon,color:h.color,days:h.days||[0,1,2,3,4,5,6],time:h.time||'',desc:h.desc||'',target:h.target||0,unit:h.unit||'',category:h.category||'habit'});setDetailH(null);setShowTimePicker(false);setScreen('addHabit');}}
+            {own&&(<TouchableOpacity onPress={()=>{setEditH(h);setNh({name:h.name,icon:h.icon,color:h.color,days:h.days||[0,1,2,3,4,5,6],time:h.time||'',desc:h.desc||'',target:h.target||0,unit:h.unit||'',category:h.category||'habit',type:h.type||'good',timerSeconds:h.timerSeconds||0,routine:h.routine,noteEnabled:h.noteEnabled||false,isShared:h.isShared||false,reminderInterval:h.reminderInterval||0,reminderFrom:h.reminderFrom||'08:00',reminderTo:h.reminderTo||'22:00',requirePartnerConfirm:h.requirePartnerConfirm||false});setDetailH(null);setShowTimePicker(false);setScreen('addHabit');}}
               style={{width:36,height:36,borderRadius:10,backgroundColor:tk.bg2,borderWidth:1,borderColor:tk.border,alignItems:'center',justifyContent:'center'}}>
               <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
                 <Path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" stroke={tk.text2} strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"/>
@@ -1817,16 +2553,24 @@ export default function App() {
             </TouchableOpacity>)}
           </View>
           <View style={{backgroundColor:tk.bg2,borderWidth:1,borderColor:tk.border,borderRadius:16,padding:20,alignItems:'center',gap:10,marginBottom:20}}>
-            <View style={{width:64,height:64,borderRadius:18,
-              backgroundColor:h.color&&h.color!=='#f5f5f5'&&h.color!=='#fafafa'?h.color:tk.bg3,
-              alignItems:'center',justifyContent:'center'}}>
-              <Text style={{fontSize:26,fontWeight:'700',
-                color:(()=>{const hx=(h.color||'#f5f5f5').replace('#','');
-                  const r=parseInt(hx.substring(0,2),16),g=parseInt(hx.substring(2,4),16),b=parseInt(hx.substring(4,6),16);
-                  return (r*299+g*587+b*114)/1000>160?'#111111':'#ffffff';})()}}>
-                {h.name?.[0]?.toUpperCase()||'?'}
-              </Text>
-            </View>
+            {(()=>{
+              const isDefaultColor = !h.color || h.color==='#f5f5f5' || h.color==='#fafafa' || h.color==='#e8e8e8';
+              const bgColor = isDefaultColor ? tk.bg3 : h.color;
+              // Считаем контраст по реальному фону, а не по дефолтному светлому цвету
+              const hx = bgColor.replace('#','');
+              const r=parseInt(hx.substring(0,2),16)||0;
+              const g=parseInt(hx.substring(2,4),16)||0;
+              const b=parseInt(hx.substring(4,6),16)||0;
+              const letterColor = (r*299+g*587+b*114)/1000 > 140 ? '#111111' : '#ffffff';
+              return (
+                <View style={{width:64,height:64,borderRadius:18,
+                  backgroundColor:bgColor,alignItems:'center',justifyContent:'center'}}>
+                  <Text style={{fontSize:26,fontWeight:'700',color:letterColor}}>
+                    {h.name?.[0]?.toUpperCase()||'?'}
+                  </Text>
+                </View>
+              );
+            })()}
             <Text style={{fontSize:20,fontWeight:'500',color:tk.text,letterSpacing:-0.3}}>{h.name}</Text>
             {h.time?<Text style={{fontSize:12,color:tk.text3}}>{h.time}</Text>:null}
             {h.desc?<Text style={{fontSize:13,color:tk.text2,textAlign:'center',lineHeight:18,paddingHorizontal:8}}> {h.desc}</Text>:null}
@@ -1850,107 +2594,236 @@ export default function App() {
               <Text style={{fontSize:10,color:tk.text3,marginTop:3,textTransform:'uppercase',letterSpacing:0.5}}>{isEn?'total':'всего'}</Text>
             </View>
           </View>
-          {/* 30-дневный календарь */}
-          <Text style={{fontSize:10,color:tk.text3,letterSpacing:1,textTransform:'uppercase',fontWeight:'400',marginBottom:10}}>{isEn?'Last 30 days':'Последние 30 дней'}</Text>
-          <View style={{backgroundColor:tk.bg2,borderWidth:1,borderColor:tk.border,borderRadius:14,padding:12,marginBottom:16}}>
-            <View style={{flexDirection:'row',flexWrap:'wrap',gap:4}}>
-              {Array.from({length:30},(_,i)=>{
-                const d=new Date();d.setDate(d.getDate()-(29-i));
-                const ds=d.toISOString().split('T')[0];
-                const dw=(d.getDay()+6)%7;
-                const active=h.days?.includes(dw);
-                const done=isLogged(h.id,myId,logs,ds);
-                return <View key={ds} style={{width:'10%' as any,aspectRatio:1,borderRadius:4,
-                  backgroundColor:done?tk.text:active?tk.bg3:'transparent',
-                  borderWidth:active&&!done?0.5:0,borderColor:tk.border,
-                  opacity:active?1:0.2}}/>;
-              })}
-            </View>
-            <View style={{flexDirection:'row',gap:12,marginTop:8,justifyContent:'flex-end'}}>
-              <View style={{flexDirection:'row',alignItems:'center',gap:4}}>
-                <View style={{width:8,height:8,borderRadius:2,backgroundColor:tk.text}}/>
-                <Text style={{fontSize:9,color:tk.text3}}>{isEn?'Done':'Выполнено'}</Text>
-              </View>
-              <View style={{flexDirection:'row',alignItems:'center',gap:4}}>
-                <View style={{width:8,height:8,borderRadius:2,backgroundColor:tk.bg3,borderWidth:0.5,borderColor:tk.border}}/>
-                <Text style={{fontSize:9,color:tk.text3}}>{isEn?'Missed':'Пропущено'}</Text>
-              </View>
-            </View>
-          </View>
-          <Text style={{fontSize:10,color:tk.text3,letterSpacing:1,textTransform:'uppercase',fontWeight:'400',marginBottom:12}}>7 {isEn?'days':'дней'}</Text>
-          {members.filter(Boolean).map(m=>(
-            <View key={m.id} style={{flexDirection:'row',alignItems:'center',gap:8,marginBottom:10}}>
-              <View style={{width:26,height:26,borderRadius:13,backgroundColor:tk.bg2,borderWidth:1,borderColor:tk.border,alignItems:'center',justifyContent:'center'}}>
-                <Text style={{fontSize:10,fontWeight:'700',color:m.id===myId?tk.text:tk.text3}}>{(m.name||'')[0]?.toUpperCase()}</Text>
-              </View>
-              <View style={{flexDirection:'row',gap:4,flex:1}}>
-                {l7.map(d=>{
-                  const dw=(new Date(d+'T12:00:00').getDay()+6)%7;
-                  const act=h.days?.includes(dw); const lg=isLogged(h.id,m.id,logs,d);
-                  return <View key={d} style={{flex:1,aspectRatio:1,borderRadius:50,
-                    backgroundColor:lg?(m.id===myId?tk.text:tk.text3):tk.bg2,
-                    borderWidth:1,borderColor:tk.border,opacity:!act?0.2:1}}/>;
-                })}
-              </View>
-              <Text style={{fontSize:10,color:tk.text3,width:28,textAlign:'right'}}>
-                {m.id===myId?(isEn?'me':'Я'):(m.name||'').slice(0,4)}
+          {/* ── Таймер — только если задан timerSeconds ── */}
+          {!!h.timerSeconds && h.timerSeconds > 0 && (
+            <View style={{backgroundColor:tk.bg2,borderWidth:1,borderColor:tk.border,
+              borderRadius:16,padding:20,marginBottom:16,alignItems:'center',gap:16}}>
+              <Text style={{fontSize:10,color:tk.text3,letterSpacing:1,
+                textTransform:'uppercase',fontWeight:'600'}}>
+                {isEn?'Timer':'Таймер'}
               </Text>
+              {/* Циферблат */}
+              <Text style={{fontSize:52,fontWeight:'300',color:tk.text,letterSpacing:-2,
+                fontVariant:['tabular-nums']}}>
+                {(()=>{
+                  const secs = timerActive ? timerLeft : h.timerSeconds;
+                  const m = Math.floor(secs/60);
+                  const s = secs%60;
+                  return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+                })()}
+              </Text>
+              {/* Прогресс бар */}
+              {timerActive && (
+                <View style={{width:'100%',height:3,backgroundColor:tk.border,borderRadius:2}}>
+                  <View style={{height:3,borderRadius:2,backgroundColor:tk.text,
+                    width:`${Math.round((timerLeft/h.timerSeconds)*100)}%` as any}}/>
+                </View>
+              )}
+              {/* Кнопки */}
+              <View style={{flexDirection:'row',gap:10,width:'100%'}}>
+                {!timerActive ? (
+                  <TouchableOpacity
+                    onPress={()=>startTimer(h.timerSeconds!, h.name)}
+                    style={{flex:1,backgroundColor:tk.text,borderRadius:12,padding:12,
+                      alignItems:'center'}}>
+                    <Text style={{color:tk.bg,fontSize:14,fontWeight:'600'}}>
+                      {isEn?'▶  Start':'▶  Старт'}
+                    </Text>
+                  </TouchableOpacity>
+                ) : (
+                  <>
+                    <TouchableOpacity
+                      onPress={stopTimer}
+                      style={{flex:1,backgroundColor:tk.bg3,borderRadius:12,padding:12,
+                        alignItems:'center',borderWidth:1,borderColor:tk.border}}>
+                      <Text style={{color:tk.text2,fontSize:14}}>
+                        {isEn?'■  Stop':'■  Стоп'}
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={()=>startTimer(h.timerSeconds!, h.name)}
+                      style={{flex:1,backgroundColor:tk.bg3,borderRadius:12,padding:12,
+                        alignItems:'center',borderWidth:1,borderColor:tk.border}}>
+                      <Text style={{color:tk.text2,fontSize:14}}>
+                        {isEn?'↺  Reset':'↺  Сброс'}
+                      </Text>
+                    </TouchableOpacity>
+                  </>
+                )}
+              </View>
             </View>
-          ))}
-          {/* 30-дневный мини-календарь */}
+          )}
+
+          {/* ── Статистика 30 дней — тепловая карта по неделям ── */}
           {(()=>{
-            const cal30: {d:string; state:'done'|'miss'|'skip'|'future'}[] = [];
-            for(let i=29;i>=0;i--){
-              const _now=new Date(); const dt=new Date(_now); dt.setDate(dt.getDate()-i);
+            // Строим 35 ячеек (5 недель × 7 дней) с понедельника
+            const today = new Date();
+            // Начинаем с понедельника 5 недель назад
+            const startDow = (today.getDay()+6)%7; // 0=пн
+            const startDate = new Date(today);
+            startDate.setDate(today.getDate() - startDow - 28); // назад 4 полных недели + текущая
+
+            const cells: {ds:string; state:'done'|'miss'|'skip'|'future'; date:Date}[] = [];
+            for(let i=0;i<35;i++){
+              const dt=new Date(startDate); dt.setDate(startDate.getDate()+i);
               const ds2=dt.toISOString().split('T')[0];
               const dw=(dt.getDay()+6)%7;
-              const isFuture=dt>_now;
-              const scheduled=h.days?.includes(dw) && (!h.createdAt||ds2>=h.createdAt);
-              if(isFuture) cal30.push({d:ds2,state:'future'});
-              else if(!scheduled) cal30.push({d:ds2,state:'skip'});
-              else if(logs[`${h.id}_${ds2}_${myId}`]) cal30.push({d:ds2,state:'done'});
-              else cal30.push({d:ds2,state:'miss'});
+              const isFuture = dt.setHours(0,0,0,0) > new Date().setHours(0,0,0,0);
+              const scheduled = h.days?.includes(dw) && (!h.createdAt||ds2>=h.createdAt);
+              if(isFuture) cells.push({ds:ds2,state:'future',date:dt});
+              else if(!scheduled) cells.push({ds:ds2,state:'skip',date:dt});
+              else if(logs[`${h.id}_${ds2}_${myId}`]) cells.push({ds:ds2,state:'done',date:dt});
+              else cells.push({ds:ds2,state:'miss',date:dt});
             }
+
+            const doneCount = cells.filter(c=>c.state==='done').length;
+            const scheduledCount = cells.filter(c=>c.state==='done'||c.state==='miss').length;
+            const rate = scheduledCount>0 ? Math.round(doneCount/scheduledCount*100) : 0;
+            const WD = isEn?['M','T','W','T','F','S','S']:['Пн','Вт','Ср','Чт','Пт','Сб','Вс'];
+
             return (
               <View style={{marginBottom:20}}>
-                <Text style={{fontSize:11,fontWeight:'700',color:tk.text3,letterSpacing:1.5,textTransform:'uppercase',marginBottom:10}}>
-                  {isEn?'Last 30 days':'Последние 30 дней'}
+                <Text style={{fontSize:10,color:tk.text3,letterSpacing:1,
+                  textTransform:'uppercase',fontWeight:'600',marginBottom:12}}>
+                  {isEn?'Last 5 weeks':'Последние 5 недель'}
                 </Text>
-                <View style={{flexDirection:'row',flexWrap:'wrap',gap:4}}>
-                  {cal30.map((c,i)=>(
-                    <View key={i} style={{width:24,height:24,borderRadius:6,
-                      backgroundColor:
-                        c.state==='done' ? tk.text :
-                        c.state==='miss' ? 'rgba(239,68,68,0.2)' :
-                        c.state==='future' ? tk.bg2 : tk.bg2,
-                      borderWidth:1,
-                      borderColor:
-                        c.state==='done' ? 'transparent' :
-                        c.state==='miss' ? 'rgba(239,68,68,0.3)' : tk.border,
-                      alignItems:'center',justifyContent:'center'
-                    }}>
-                      {c.state==='done'&&(
-                        <Svg width={10} height={10} viewBox="0 0 24 24" fill="none">
-                          <Path d="M5 13l4 4L19 7" stroke={tk.bg} strokeWidth="2.5"
-                            strokeLinecap="round" strokeLinejoin="round"/>
-                        </Svg>
-                      )}
-                    </View>
+
+                {/* Заголовки дней */}
+                <View style={{flexDirection:'row',marginBottom:4,paddingHorizontal:2}}>
+                  <View style={{width:28}}/>{/* отступ под подписи недели */}
+                  {WD.map((d,i)=>(
+                    <Text key={i} style={{flex:1,textAlign:'center',fontSize:9,
+                      color:tk.text3,fontWeight:'500'}}>{d}</Text>
                   ))}
                 </View>
-                <View style={{flexDirection:'row',gap:12,marginTop:8,alignItems:'center'}}>
-                  <View style={{flexDirection:'row',alignItems:'center',gap:4}}>
-                    <View style={{width:8,height:8,borderRadius:2,backgroundColor:tk.text}}/>
-                    <Text style={{fontSize:10,color:tk.text3}}>{isEn?'Done':'Выполнено'}</Text>
+
+                {/* Сетка по неделям */}
+                {Array.from({length:5},(_,week)=>{
+                  const weekCells = cells.slice(week*7, week*7+7);
+                  const weekDt = weekCells[0]?.date;
+                  const monthLabel = weekDt
+                    ? (isEn
+                      ? weekDt.toLocaleDateString('en',{month:'short',day:'numeric'})
+                      : `${weekDt.getDate()} ${['янв','фев','мар','апр','май','июн','июл','авг','сен','окт','ноя','дек'][weekDt.getMonth()]}`)
+                    : '';
+                  return (
+                    <View key={week} style={{flexDirection:'row',alignItems:'center',marginBottom:4}}>
+                      <Text style={{width:28,fontSize:8,color:tk.text3,textAlign:'right',paddingRight:4}}>
+                        {monthLabel}
+                      </Text>
+                      {weekCells.map((c,di)=>{
+                        const isToday = c.ds===todayS();
+                        return (
+                          <View key={di} style={{flex:1,margin:1.5,aspectRatio:1,borderRadius:5,
+                            backgroundColor:
+                              c.state==='done' ? tk.text :
+                              c.state==='miss' ? 'rgba(239,68,68,0.22)' :
+                              c.state==='future' ? 'transparent' : tk.bg2,
+                            borderWidth: isToday ? 1.5 : (c.state==='skip'||c.state==='future') ? 0 : 0,
+                            borderColor: isToday ? tk.text2 : 'transparent',
+                            alignItems:'center',justifyContent:'center',
+                          }}>
+                            {c.state==='done'&&(
+                              <Svg width={8} height={8} viewBox="0 0 24 24" fill="none">
+                                <Path d="M5 13l4 4L19 7" stroke={tk.bg} strokeWidth="3"
+                                  strokeLinecap="round" strokeLinejoin="round"/>
+                              </Svg>
+                            )}
+                            {c.state==='miss'&&(
+                              <View style={{width:3,height:3,borderRadius:2,
+                                backgroundColor:'rgba(239,68,68,0.6)'}}/>
+                            )}
+                          </View>
+                        );
+                      })}
+                    </View>
+                  );
+                })}
+
+                {/* Легенда + процент */}
+                <View style={{flexDirection:'row',alignItems:'center',
+                  justifyContent:'space-between',marginTop:10}}>
+                  <View style={{flexDirection:'row',gap:14}}>
+                    <View style={{flexDirection:'row',alignItems:'center',gap:5}}>
+                      <View style={{width:10,height:10,borderRadius:3,backgroundColor:tk.text}}/>
+                      <Text style={{fontSize:10,color:tk.text3}}>{isEn?'Done':'Выполнено'}</Text>
+                    </View>
+                    <View style={{flexDirection:'row',alignItems:'center',gap:5}}>
+                      <View style={{width:10,height:10,borderRadius:3,backgroundColor:'rgba(239,68,68,0.22)'}}/>
+                      <Text style={{fontSize:10,color:tk.text3}}>{isEn?'Missed':'Пропущено'}</Text>
+                    </View>
                   </View>
-                  <View style={{flexDirection:'row',alignItems:'center',gap:4}}>
-                    <View style={{width:8,height:8,borderRadius:2,backgroundColor:'rgba(239,68,68,0.3)'}}/>
-                    <Text style={{fontSize:10,color:tk.text3}}>{isEn?'Missed':'Пропущено'}</Text>
+                  <View style={{alignItems:'flex-end'}}>
+                    <Text style={{fontSize:18,fontWeight:'700',color:
+                      rate>=80?'#4ade80':rate>=50?tk.text2:'rgba(239,68,68,0.7)'}}>
+                      {rate}%
+                    </Text>
+                    <Text style={{fontSize:9,color:tk.text3}}>
+                      {doneCount}/{scheduledCount} {isEn?'days':'дней'}
+                    </Text>
                   </View>
                 </View>
+
+                {/* 7-дневное сравнение участников */}
+                {members.filter(Boolean).length > 1 && (
+                  <View style={{marginTop:16}}>
+                    <Text style={{fontSize:10,color:tk.text3,letterSpacing:1,
+                      textTransform:'uppercase',fontWeight:'600',marginBottom:10}}>
+                      {isEn?'Last 7 days · both':'7 дней · оба'}
+                    </Text>
+                    {members.filter(Boolean).map(m=>{
+                      const week7 = l7;
+                      const doneDays = week7.filter(d=>{
+                        const dw=(new Date(d+'T12:00:00').getDay()+6)%7;
+                        return h.days?.includes(dw) && isLogged(h.id,m.id,logs,d);
+                      }).length;
+                      const totalDays = week7.filter(d=>{
+                        const dw=(new Date(d+'T12:00:00').getDay()+6)%7;
+                        return h.days?.includes(dw);
+                      }).length;
+                      return (
+                        <View key={m.id} style={{flexDirection:'row',alignItems:'center',
+                          gap:10,marginBottom:8}}>
+                          <View style={{width:28,height:28,borderRadius:14,
+                            backgroundColor:m.id===myId?tk.text:tk.bg3,
+                            borderWidth:1,borderColor:tk.border,
+                            alignItems:'center',justifyContent:'center'}}>
+                            <Text style={{fontSize:11,fontWeight:'700',
+                              color:m.id===myId?tk.bg:tk.text2}}>
+                              {(m.name||'?')[0]?.toUpperCase()}
+                            </Text>
+                          </View>
+                          <View style={{flex:1}}>
+                            <View style={{flexDirection:'row',gap:3,marginBottom:4}}>
+                              {week7.map(d=>{
+                                const dw=(new Date(d+'T12:00:00').getDay()+6)%7;
+                                const act=h.days?.includes(dw);
+                                const lg=isLogged(h.id,m.id,logs,d);
+                                return (
+                                  <View key={d} style={{flex:1,height:20,borderRadius:4,
+                                    backgroundColor: lg
+                                      ? (m.id===myId?tk.text:'rgba(255,255,255,0.45)')
+                                      : act ? 'rgba(239,68,68,0.15)' : tk.bg2,
+                                    borderWidth: act&&!lg ? 0 : 0,
+                                    opacity: act ? 1 : 0.25,
+                                  }}/>
+                                );
+                              })}
+                            </View>
+                          </View>
+                          <Text style={{fontSize:12,fontWeight:'600',
+                            color:tk.text2,width:32,textAlign:'right'}}>
+                            {doneDays}/{totalDays}
+                          </Text>
+                        </View>
+                      );
+                    })}
+                  </View>
+                )}
               </View>
             );
           })()}
+
 
           {own&&(
             <>
@@ -1983,17 +2856,6 @@ export default function App() {
             <View style={{marginTop:8}}>
               {/* Separator */}
               <View style={{height:1,backgroundColor:tk.border,marginBottom:0}}/>
-              <TouchableOpacity
-                onPress={async()=>{
-                  const updated=(space?.habits||[]).map((x:any)=>x.id===h.id?{...x,archived:!h.archived}:x);
-                  await saveH(updated);
-                  setDetailH(null); setScreen('today');
-                }}
-                style={{paddingVertical:16,paddingHorizontal:4,borderBottomWidth:1,borderBottomColor:tk.border}}>
-                <Text style={{color:tk.text2,fontSize:15}}>
-                  {h.archived?(isEn?'Unarchive':'Разархивировать'):(isEn?'Archive':'Архивировать')}
-                </Text>
-              </TouchableOpacity>
               <TouchableOpacity onPress={()=>Alert.alert(isEn?'Delete habit?':'Удалить привычку?',isEn?'This cannot be undone.':'Это действие нельзя отменить.',[
                 {text:isEn?'Cancel':'Отмена',style:'cancel'},
                 {text:isEn?'Delete':'Удалить',style:'destructive',onPress:()=>delHabit(h.id)}
@@ -2067,6 +2929,28 @@ export default function App() {
           const newMembers=members.filter(m=>m&&m.id!==memberId);
           await Storage.setMembers(space.id,newMembers);
           toast$(isEn?'Partner removed':'Партнёр удалён');
+        }}
+        confirmations={confirmations}
+        onConfirmPartner={async(habitId)=>{
+          if(!space?.id||!myId||myId==='guest') return;
+          const partner=members.find((m:any)=>m&&m.id!==myId);
+          if(!partner) return;
+          const c:import('./src/store').HabitConfirmation={
+            habitId,date:todayS(),fromId:partner.id,confirmedBy:myId,ts:Date.now(),
+          };
+          await Storage.saveConfirmation(space.id,c).catch(()=>{});
+          const l={...(space?.logs||{})};
+          l[`${habitId}_${todayS()}_${partner.id}`]=true;
+          await Storage.setLogs(space.id,l).catch(()=>{});
+          const habit=space.habits?.find((h:any)=>h.id===habitId);
+          sendPartnerNotification({
+            spaceId:space.id, toUid:partner.id, fromName:myName,
+            habitName:habit?.name??'', habitId, lang,
+            customBody: isEn
+              ? `${myName} confirmed your habit: ${habit?.name??''} ✓`
+              : `${myName} подтвердил вашу привычку: ${habit?.name??''} ✓`,
+          }).catch(()=>{});
+          toast$(isEn?'Confirmed ✓':'Подтверждено ✓');
         }}/>
     );
     if (screen==='calendar') return (
@@ -2086,18 +2970,22 @@ export default function App() {
           const h=(space?.habits||[]).filter(x=>x.id!==id);
           const l={...(space?.logs||{})};
           Object.keys(l).filter(k=>k.startsWith(id+'_')).forEach(k=>delete l[k]);
+          cancelHabitNotifications(id).catch(()=>{});
           await saveH(h); await saveL(l);
         }}
         onRefresh={async()=>{
           if (!space?.id) return;
           try {
-            const [h, l, m] = await Promise.all([
+            const [allH, l, m] = await Promise.all([
               Storage.getHabits(space.id),
               Storage.getLogs(space.id),
               Storage.getMembers(space.id),
             ]);
-            setSpace(prev => prev ? {...prev, habits:h||[], logs:l||{}, members:m||[]} : prev);
-          } catch {}
+            const h = (allH||[]).filter((x:any) => x.isShared || x.ownerId === myId);
+            setSpace(prev => prev ? {...prev, habits:h, logs:l||{}, members:m||[]} : prev);
+          } catch {
+            toast$(isEn ? 'Failed to refresh, check connection' : 'Не удалось обновить, проверьте соединение', false);
+          }
         }}
         onReorder={async(reordered)=>{
           if(!space?.id) return;
@@ -2105,8 +2993,75 @@ export default function App() {
           const withOrder = reordered.map((h, idx) => ({ ...h, order: idx }));
           try { await saveH(withOrder); } catch {}
         }}
+        reactions={reactions}
+        spaceNotes={spaceNotes}
+        onWeekPlan={()=>setShowWeekPlan(true)}
+        onOpenAchievements={()=>animateScreenChange('achievements','forward')}
+        onOpenMood={()=>animateScreenChange('mood','forward')}
+        todayMood={todayMood}
+        onOpenStats={()=>animateScreenChange('stats','forward')}
+        confirmations={confirmations}
+        onboardingGoal={onboardingGoal}
+        onConfirmPartner={async(habitId)=>{
+          if(!space?.id||!myId||myId==='guest') return;
+          const partner=members.find((m:any)=>m&&m.id!==myId);
+          if(!partner) return;
+          const c:import('./src/store').HabitConfirmation={
+            habitId,date:todayS(),fromId:partner.id,confirmedBy:myId,ts:Date.now(),
+          };
+          await Storage.saveConfirmation(space.id,c).catch(()=>{});
+          const l={...(space?.logs||{})};
+          l[`${habitId}_${todayS()}_${partner.id}`]=true;
+          await Storage.setLogs(space.id,l).catch(()=>{});
+          // Push партнёру — его выполнение подтверждено
+          const habit=space.habits?.find((h:any)=>h.id===habitId);
+          sendPartnerNotification({
+            spaceId:space.id, toUid:partner.id, fromName:myName,
+            habitName:habit?.name??'', habitId, lang,
+            customBody: isEn
+              ? `${myName} confirmed your habit: ${habit?.name??''} ✓`
+              : `${myName} подтвердил вашу привычку: ${habit?.name??''} ✓`,
+          }).catch(()=>{});
+          toast$(isEn?'Confirmed ✓':'Подтверждено ✓');
+        }}
+        onReact={async(habitId,reactionKey)=>{
+          if(!space?.id || myId==='guest') return;
+          if(reactingRef.current) return; // защита от спама
+          reactingRef.current = true;
+          try {
+            const today = todayS();
+            const existingAny = reactions.find(
+              (r:any) => r.habitId===habitId && r.fromId===myId && r.date===today
+            );
+            const existingSame = existingAny?.emoji === reactionKey;
+            if(existingAny) {
+              setReactions(prev => prev.filter(
+                r => !(r.habitId===habitId && r.fromId===myId && r.date===today)
+              ));
+              await Storage.deleteReaction(space.id, habitId, today, myId).catch(()=>{});
+            }
+            if(existingSame) return;
+            const habit = space.habits?.find((h:any)=>h.id===habitId);
+            const reaction = { emoji:reactionKey, fromId:myId, fromName:myName, habitId, date:today, ts:Date.now() };
+            setReactions(prev => [...prev, reaction]);
+            await Storage.saveReaction(space.id, reaction).catch(()=>{});
+            // Push — только если реакция новая (не toggle off)
+            const keyToLabel: Record<string,string> = { heart:'❤️', lightning:'⚡', star:'★', crown:'♛', fire:'🔥' };
+            const owner = space.members?.find((m:any)=>m&&m.id!==myId);
+            if(owner && habit) {
+              sendReactionNotification({
+                spaceId:space.id, toUid:owner.id, fromName:myName,
+                emoji:keyToLabel[reactionKey]||reactionKey,
+                habitName:habit.name, habitId, lang,
+              }).catch(()=>{});
+            }
+          } finally {
+            // Разблокируем через 600мс — достаточно для дебаунса
+            setTimeout(() => { reactingRef.current = false; }, 600);
+          }
+        }}
         onOpenDetail={h=>{setDetailH(h);setScreen('detail');}}
-        onAddHabit={()=>setScreen('addHabit')} onOpenProfile={()=>setScreen('profile')}/>
+        onAddHabit={(isShared)=>{setNh({...blank,isShared:!!isShared});setShowTimePicker(false);setScreen('addHabit');}} onOpenProfile={()=>setScreen('profile')}/>
     );
   })();
 
@@ -2120,7 +3075,7 @@ export default function App() {
     <View style={{flex:1,paddingTop:TOP,backgroundColor:tk.bg}}
       {...(TAB_SCREENS.includes(screen) ? tabSwipePan.panHandlers : {})}>
       {isGuest() && (
-        <View style={{ backgroundColor: '#7c4dff22', borderBottomWidth: 1, borderColor: '#7c4dff44',
+        <View style={{ backgroundColor: tk.accent + '22', borderBottomWidth: 1, borderColor: tk.accent + '44',
           paddingVertical: 10, paddingHorizontal: 16, flexDirection: 'row',
           alignItems: 'center', gap: 10 }}>
           <View style={{ flex: 1 }}>
@@ -2140,10 +3095,10 @@ export default function App() {
         </View>
       )}
       {!isOnline && (
-        <View style={{ backgroundColor: '#7c4dff22', borderBottomWidth: 1, borderColor: '#7c4dff44',
+        <View style={{ backgroundColor: tk.accent + '22', borderBottomWidth: 1, borderColor: tk.accent + '44',
           paddingVertical: 8, paddingHorizontal: 16, flexDirection: 'row',
           alignItems: 'center', gap: 8 }}>
-          <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#7c4dff' }}/>
+          <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: tk.accent }}/>
           <Text style={{ fontSize: 12, color: tk.text2, flex: 1 }}>
             {lang === 'en'
               ? 'Offline mode — data saved locally, will sync when connected'
@@ -2163,45 +3118,56 @@ export default function App() {
         animationType="slide"
         onRequestClose={()=>{Keyboard.dismiss();setNoteModal(null);}}
         statusBarTranslucent>
-        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-          <View style={{flex:1,backgroundColor:'rgba(0,0,0,0.5)',justifyContent:'flex-end'}}>
-            <TouchableWithoutFeedback onPress={()=>{}}>
-              <View style={{backgroundColor:tk.bg,borderTopLeftRadius:20,borderTopRightRadius:20,
-                padding:20,paddingBottom:Platform.OS==='ios'?34:20,
-                marginBottom: noteKbHeight}}>
-                <Text style={{fontSize:15,fontWeight:'700',color:tk.text,marginBottom:4}}>
-                  {isEn?'Add a note':'Добавить заметку'}
-                </Text>
-                <Text style={{fontSize:11,color:tk.text3,marginBottom:12}}>
-                  {isEn?'Optional — how did it go?':'Необязательно — как прошло?'}
-                </Text>
-                <TextInput
-                  value={noteText} onChangeText={setNoteText}
-                  placeholder={isEn?'Type something...':'Напишите что-нибудь...'}
-                  placeholderTextColor={tk.text3}
-                  multiline maxLength={200}
-                  style={{backgroundColor:tk.bg2,borderWidth:1,borderColor:tk.border,
-                    borderRadius:14,padding:12,fontSize:14,color:tk.text,
-                    height:72,textAlignVertical:'top',marginBottom:12}}/>
-                <View style={{flexDirection:'row',gap:10}}>
-                  <TouchableOpacity onPress={()=>{Keyboard.dismiss();setNoteModal(null);}}
-                    style={{flex:1,padding:14,borderRadius:14,borderWidth:1,borderColor:tk.border,alignItems:'center'}}>
-                    <Text style={{color:tk.text2,fontSize:14}}>{isEn?'Skip':'Пропустить'}</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    onPress={async()=>{
-                      Keyboard.dismiss();
-                      if(noteModal && noteText.trim()) await Storage.setNote(myId,noteModal.habitId,noteModal.date,noteText.trim());
-                      setNoteModal(null);
-                    }}
-                    style={{flex:1,padding:14,borderRadius:14,backgroundColor:tk.text,alignItems:'center'}}>
-                    <Text style={{color:tk.bg,fontSize:14,fontWeight:'700'}}>{isEn?'Save':'Сохранить'}</Text>
-                  </TouchableOpacity>
+        <KeyboardAvoidingView
+          behavior={Platform.OS==='ios'?'padding':'height'}
+          style={{flex:1}}
+          keyboardVerticalOffset={Platform.OS==='ios'?0:24}>
+          <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+            <View style={{flex:1,backgroundColor:'rgba(0,0,0,0.5)',justifyContent:'flex-end'}}>
+              <TouchableWithoutFeedback onPress={()=>{}}>
+                <View style={{backgroundColor:tk.bg,borderTopLeftRadius:20,borderTopRightRadius:20,
+                  padding:20,paddingBottom:Platform.OS==='ios'?44:28}}>
+                  {/* Grab handle */}
+                  <View style={{width:36,height:4,borderRadius:2,backgroundColor:tk.border,
+                    alignSelf:'center',marginBottom:16}}/>
+                  <Text style={{fontSize:15,fontWeight:'700',color:tk.text,marginBottom:4}}>
+                    {isEn?'Add a note':'Добавить заметку'}
+                  </Text>
+                  <Text style={{fontSize:11,color:tk.text3,marginBottom:12}}>
+                    {isEn?'Optional — how did it go?':'Необязательно — как прошло?'}
+                  </Text>
+                  <TextInput
+                    value={noteText} onChangeText={setNoteText}
+                    placeholder={isEn?'Type something...':'Напишите что-нибудь...'}
+                    placeholderTextColor={tk.text3}
+                    multiline maxLength={200}
+                    autoFocus
+                    style={{backgroundColor:tk.bg2,borderWidth:1,borderColor:tk.border,
+                      borderRadius:14,padding:12,fontSize:14,color:tk.text,
+                      minHeight:80,textAlignVertical:'top',marginBottom:16}}/>
+                  <View style={{flexDirection:'row',gap:10}}>
+                    <TouchableOpacity onPress={()=>{Keyboard.dismiss();setNoteModal(null);}}
+                      style={{flex:1,padding:14,borderRadius:14,borderWidth:1,borderColor:tk.border,alignItems:'center'}}>
+                      <Text style={{color:tk.text2,fontSize:14}}>{isEn?'Skip':'Пропустить'}</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={async()=>{
+                        Keyboard.dismiss();
+                        if(noteModal && noteText.trim()) {
+                          await Storage.setNote(myId,noteModal.habitId,noteModal.date,noteText.trim());
+                          if(space?.id) await Storage.saveHabitNoteToSpace(space.id,myId,noteModal.habitId,noteModal.date,noteText.trim()).catch(()=>{});
+                        }
+                        setNoteModal(null);
+                      }}
+                      style={{flex:2,padding:14,borderRadius:14,backgroundColor:tk.text,alignItems:'center'}}>
+                      <Text style={{color:tk.bg,fontSize:14,fontWeight:'700'}}>{isEn?'Save':'Сохранить'}</Text>
+                    </TouchableOpacity>
+                  </View>
                 </View>
-              </View>
-            </TouchableWithoutFeedback>
-          </View>
-        </TouchableWithoutFeedback>
+              </TouchableWithoutFeedback>
+            </View>
+          </TouchableWithoutFeedback>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Cover View — перекрывает старый экран при переходе */}
@@ -2214,7 +3180,7 @@ export default function App() {
       {TAB_SCREENS.includes(screen) && <BottomNav screen={screen} onPress={s=>s==='add'?setScreen('addHabit'):animateScreenChange(s as Screen)} tk={tk} lang={lang} theme={theme}
       friendsBadge={members.length>1 ? members.filter(m=>m&&m.id!==myId).filter(m=>{
         const dow=todayDow();
-        const todayH=(space?.habits||[]).filter(h=>!h.archived && h.days?.includes(dow));
+        const todayH=(space?.habits||[]).filter(h=>h.days?.includes(dow));
         return todayH.some(h=>isLogged(h.id,m.id,logs));
       }).length : 0}/>}
       {/* Android-style bottom cross bar для под-экранов */}
@@ -2233,6 +3199,26 @@ export default function App() {
         </View>
       )}
       {/* Invite banner — Modal чтобы показываться поверх ЛЮБОГО экрана */}
+      {/* Модальное окно недельного плана */}
+      <WeekPlanModal
+        visible={showWeekPlan}
+        onClose={() => setShowWeekPlan(false)}
+        tk={tk}
+        accent={tk.accent}
+        accent2={tk.text2}
+        lang={lang}
+        myId={myId}
+        habits={space?.habits || []}
+        logs={space?.logs || {}}
+        onToggle={async (habitId) => {
+          const today = todayS();
+          const key = `${habitId}_${today}_${myId}`;
+          const l = { ...(space?.logs || {}) };
+          if (l[key]) delete l[key]; else l[key] = true;
+          try { await saveL(l); } catch {}
+        }}
+      />
+
       <Modal
         visible={!!pendInv && screen !== 'auth' && screen !== 'onboarding'}
         transparent

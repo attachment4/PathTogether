@@ -77,6 +77,61 @@ export const calcStreak = (hid: string, uid: string, logs: Record<string,boolean
   return streak;
 };
 
+/**
+ * Совместный стрик пары.
+ * День считается "совместным" если ОБА участника выполнили хотя бы одну привычку.
+ * Пропуск одного дня в неделю прощается (как в индивидуальном стрике).
+ */
+export const calcJointStreak = (
+  memberIds: string[],
+  habits: Array<{ id: string; days?: number[] }>,
+  logs: Record<string, boolean>,
+): number => {
+  if (memberIds.length < 2) return 0;
+
+  const getISOWeek = (date: Date): string => {
+    const tmp = new Date(date);
+    tmp.setHours(12, 0, 0, 0);
+    tmp.setDate(tmp.getDate() + 3 - ((tmp.getDay() + 6) % 7));
+    const week1 = new Date(tmp.getFullYear(), 0, 4);
+    const wn = 1 + Math.round(((tmp.getTime() - week1.getTime()) / 86400000 - 3 + ((week1.getDay() + 6) % 7)) / 7);
+    return `${tmp.getFullYear()}-W${wn}`;
+  };
+
+  const activeHabits = habits;
+  const bothDoneOnDay = (ds: string): boolean => {
+    const dow = getDow(ds);
+    // Привычки запланированные на этот день
+    const dayHabits = activeHabits.filter(h => !h.days || h.days.includes(dow));
+    if (dayHabits.length === 0) return true; // нет привычек — не прерываем
+    return memberIds.every(uid =>
+      dayHabits.some(h => !!logs[`${h.id}_${ds}_${uid}`])
+    );
+  };
+
+  let streak = 0;
+  const weekSkips: Record<string, number> = {};
+  const d = new Date();
+
+  for (let i = 0; i < 365; i++) {
+    const ds = dateToS(d);
+    if (bothDoneOnDay(ds)) {
+      streak++;
+    } else if (i === 0) {
+      // Сегодня ещё может быть выполнено — не прерываем
+    } else {
+      const wk = getISOWeek(d);
+      if ((weekSkips[wk] || 0) < 1) {
+        weekSkips[wk] = (weekSkips[wk] || 0) + 1;
+      } else {
+        break;
+      }
+    }
+    d.setDate(d.getDate() - 1);
+  }
+  return streak;
+};
+
 import { Platform, StatusBar } from 'react-native';
 
 /**

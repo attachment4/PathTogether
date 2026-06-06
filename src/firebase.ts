@@ -1,10 +1,10 @@
 import { initializeApp, getApps } from 'firebase/app';
-import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from 'firebase/firestore';
 import {
-  initializeAuth,
-  getReactNativePersistence,
-  getAuth,
-} from 'firebase/auth';
+  initializeFirestore,
+  persistentLocalCache,
+  persistentSingleTabManager, // React Native — одна "вкладка"
+} from 'firebase/firestore';
+import { initializeAuth, getAuth } from 'firebase/auth';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const firebaseConfig = {
@@ -17,27 +17,36 @@ const firebaseConfig = {
 };
 
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
-// persistentLocalCache требует IndexedDB — недоступно в Expo Go и некоторых средах
-// Используем с fallback на обычный кэш
+
+// ── Firestore с персистентным кешом ─────────────────────────────────────────
 let db: ReturnType<typeof initializeFirestore>;
 try {
   db = initializeFirestore(app, {
     localCache: persistentLocalCache({
-      tabManager: persistentMultipleTabManager()
-    })
+      tabManager: persistentSingleTabManager({ forceOwnership: true }),
+    }),
+    ignoreUndefinedProperties: true,
   });
 } catch {
+  // Firestore уже инициализирован (Hot Reload) или среда не поддерживает кеш
   const { getFirestore } = require('firebase/firestore');
   db = getFirestore(app);
 }
 export { db };
 
+// ── Auth с сохранением сессии через AsyncStorage ─────────────────────────────
+// getReactNativePersistence экспортируется только в react-native бандле (@firebase/auth/dist/rn),
+// который Metro подхватывает автоматически через поле "react-native" в package.json.
+// require() используем чтобы избежать TS-ошибки (браузерные типы не объявляют эту функцию).
 let auth: ReturnType<typeof getAuth>;
 try {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { getReactNativePersistence } = require('@firebase/auth/dist/rn/index.js');
   auth = initializeAuth(app, {
     persistence: getReactNativePersistence(AsyncStorage),
   });
 } catch {
+  // Уже инициализирован или getReactNativePersistence недоступен — берём готовый инстанс
   auth = getAuth(app);
 }
 export { auth };

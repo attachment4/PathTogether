@@ -14,6 +14,9 @@ interface Props {
   lang: string;
   tk: Theme;
   onBack: () => void;
+  partnerId?: string;
+  partnerName?: string;
+  spaceId?: string;
 }
 
 // Mood represented as abstract shapes/fills, not emoji
@@ -58,15 +61,25 @@ function MoodFace({ val, color, size = 40 }: { val: number; color: string; size?
 
 
 
-export default function MoodScreen({ myId, lang, tk, onBack }: Props) {
+export default function MoodScreen({ myId, lang, tk, onBack, partnerId, partnerName, spaceId }: Props) {
   const isEn = lang === 'en';
   const [todayMood, setTodayMood] = useState<MoodEntry | null>(null);
   const [selectedMood, setSelectedMood] = useState<1|2|3|4|5 | null>(null);
   const [note, setNote] = useState('');
   const [history, setHistory] = useState<MoodEntry[]>([]);
   const [viewEntry, setViewEntry] = useState<MoodEntry|null>(null);
+  const [spaceMoods, setSpaceMoods] = useState<MoodEntry[]>([]);
+  const [savedToast, setSavedToast] = useState(false);
+  const [errorToast, setErrorToast] = useState(false);
 
   useEffect(() => { loadData(); }, []);
+
+  // Подписываемся на настроения пространства если есть spaceId
+  useEffect(() => {
+    if (!spaceId) return;
+    const unsub = Storage.subscribeSpaceMoods(spaceId, moods => setSpaceMoods(moods));
+    return unsub;
+  }, [spaceId]);
 
   const loadData = async () => {
     const entry = await Storage.getMood(myId, todayS());
@@ -82,11 +95,27 @@ export default function MoodScreen({ myId, lang, tk, onBack }: Props) {
 
   const saveMood = async () => {
     if (!selectedMood) return;
-    const entry: MoodEntry = { date: todayS(), mood: selectedMood, note: note.trim(), uid: myId };
-    await Storage.setMood(entry);
-    setTodayMood(entry);
-    loadData();
+    try {
+      const entry: MoodEntry = { date: todayS(), mood: selectedMood, note: note.trim(), uid: myId };
+      await Storage.setMood(entry);
+      if (spaceId && myId) await Storage.saveMoodToSpace(spaceId, entry).catch(() => {});
+      setTodayMood(entry);
+      setSavedToast(true);
+      setTimeout(() => setSavedToast(false), 4000);
+      loadData();
+    } catch {
+      setErrorToast(true);
+      setTimeout(() => setErrorToast(false), 4000);
+    }
   };
+
+  // Получаем данные партнёра из пространства
+  const partnerTodayMood = partnerId
+    ? spaceMoods.find(m => m.uid === partnerId && m.date === todayS()) ?? null
+    : null;
+  const partnerHistory = partnerId
+    ? spaceMoods.filter(m => m.uid === partnerId).sort((a, b) => b.date.localeCompare(a.date))
+    : [];
 
   const avgMood = history.length > 0
     ? (history.reduce((s, e) => s + e.mood, 0) / history.length).toFixed(1)
@@ -134,7 +163,7 @@ export default function MoodScreen({ myId, lang, tk, onBack }: Props) {
                 backgroundColor: selectedMood === m.val
                   ? m.color + '18'
                   : tk.bg2 }}>
-              <MoodFace val={m.val} color={selectedMood === m.val ? m.color : tk.text3} size={36}/>
+              <MoodFace val={m.val} color={selectedMood === m.val ? m.color : tk.text2} size={36}/>
             </TouchableOpacity>
           ))}
         </View>
@@ -158,15 +187,71 @@ export default function MoodScreen({ myId, lang, tk, onBack }: Props) {
             borderRadius: 14, padding: 14, fontSize: 14, color: tk.text,
             minHeight: 80, textAlignVertical: 'top', marginBottom: 16 }}/>
 
-        <TouchableOpacity onPress={saveMood} disabled={!selectedMood}
-          style={{ backgroundColor: selectedMood ? tk.text : tk.bg3,
-            borderRadius: 14, padding: 16, alignItems: 'center', marginBottom: 36 }}>
+        {!selectedMood && !todayMood && (
+          <Text style={{ fontSize: 11, color: tk.text3, textAlign: 'center', marginBottom: 8 }}>
+            {isEn ? '↑ Select your mood to save' : '↑ Выберите настроение выше чтобы сохранить'}
+          </Text>
+        )}
+        <TouchableOpacity onPress={async () => { await saveMood(); }}
+          disabled={!selectedMood}
+          activeOpacity={0.8}
+          style={{ backgroundColor: selectedMood ? tk.text : tk.bg2,
+            borderRadius: 14, padding: 16, alignItems: 'center', marginBottom: 24,
+            borderWidth: selectedMood ? 0 : 1, borderColor: tk.border }}>
           <Text style={{ color: selectedMood ? tk.bg : tk.text3, fontSize: 15, fontWeight: '700' }}>
             {todayMood
               ? (isEn ? 'Update' : 'Обновить')
               : (isEn ? 'Save' : 'Сохранить')}
           </Text>
         </TouchableOpacity>
+
+        {/* Настроение партнёра сегодня */}
+        {partnerId && partnerName && (
+          <View style={{ backgroundColor: tk.bg2, borderRadius: 16, borderWidth: 1,
+            borderColor: tk.border, padding: 16, marginBottom: 28 }}>
+            <Text style={{ fontSize: 9, color: tk.text3, letterSpacing: 1.5,
+              textTransform: 'uppercase', marginBottom: 12 }}>
+              {isEn ? `${partnerName} today` : `${partnerName} сегодня`}
+            </Text>
+            {partnerTodayMood ? (() => {
+              const m = MOODS.find(x => x.val === partnerTodayMood.mood)!;
+              return (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                  <View style={{ width: 48, height: 48, borderRadius: 14,
+                    backgroundColor: m.color + '20', borderWidth: 1, borderColor: m.color + '40',
+                    alignItems: 'center', justifyContent: 'center' }}>
+                    <MoodFace val={partnerTodayMood.mood} color={m.color} size={32}/>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 15, fontWeight: '600', color: tk.text }}>
+                      {isEn ? m.label_en : m.label_ru}
+                    </Text>
+                    {!!partnerTodayMood.note && (
+                      <Text style={{ fontSize: 12, color: tk.text3, marginTop: 2 }} numberOfLines={2}>
+                        {partnerTodayMood.note}
+                      </Text>
+                    )}
+                  </View>
+                  {/* Мини-история партнёра за 7 дней */}
+                  <View style={{ flexDirection: 'row', gap: 3, alignItems: 'flex-end' }}>
+                    {partnerHistory.slice(0, 7).reverse().map((e, i) => {
+                      const pm = MOODS.find(x => x.val === e.mood);
+                      return (
+                        <View key={i} style={{ width: 6, borderRadius: 3,
+                          height: pm ? (pm.val / 5) * 28 : 3,
+                          backgroundColor: pm ? pm.color : tk.border, opacity: 0.7 }}/>
+                      );
+                    })}
+                  </View>
+                </View>
+              );
+            })() : (
+              <Text style={{ fontSize: 13, color: tk.text3 }}>
+                {isEn ? `${partnerName} hasn't logged today yet` : `${partnerName} ещё не отметил(а) настроение`}
+              </Text>
+            )}
+          </View>
+        )}
 
         {/* Graph */}
         {history.length > 0 && (
@@ -191,7 +276,7 @@ export default function MoodScreen({ myId, lang, tk, onBack }: Props) {
                       <View style={{ width: '100%', height: barH, borderRadius: 3,
                         backgroundColor: m ? m.color : tk.border,
                         opacity: mood ? 1 : 0.3 }}/>
-                      <Text style={{ fontSize: 7, color: tk.text3 }}>
+                      <Text style={{ fontSize: 9, color: tk.text2 }}>
                         {entry ? new Date(entry.date).getDate() : ''}
                       </Text>
                     </View>
@@ -288,6 +373,26 @@ export default function MoodScreen({ myId, lang, tk, onBack }: Props) {
           </TouchableOpacity>
         );
       })()}
+      {savedToast && (
+        <View style={{ position: 'absolute', bottom: 40, left: 20, right: 20,
+          backgroundColor: tk.text, borderRadius: 12, padding: 14,
+          alignItems: 'center', shadowColor: '#000', shadowOpacity: 0.15,
+          shadowRadius: 8, elevation: 8 }}>
+          <Text style={{ color: tk.bg, fontSize: 13, fontWeight: '600' }}>
+            {isEn ? 'Mood saved ✓' : 'Настроение сохранено ✓'}
+          </Text>
+        </View>
+      )}
+      {errorToast && (
+        <View style={{ position: 'absolute', bottom: 40, left: 20, right: 20,
+          backgroundColor: '#e05555', borderRadius: 12, padding: 14,
+          alignItems: 'center', shadowColor: '#000', shadowOpacity: 0.15,
+          shadowRadius: 8, elevation: 8 }}>
+          <Text style={{ color: '#fff', fontSize: 13, fontWeight: '600' }}>
+            {isEn ? 'Failed to save, try again' : 'Не удалось сохранить, попробуйте ещё раз'}
+          </Text>
+        </View>
+      )}
     </View>
   );
 }

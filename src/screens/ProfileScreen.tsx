@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View, Text, StatusBar, Platform, ScrollView, TouchableOpacity, TextInput, Modal, Alert, Share, Linking,
 } from 'react-native';
@@ -14,12 +14,29 @@ import Svg, { Path, Circle } from 'react-native-svg';
 //  Аватар — минималистичный, первая буква + градиентная рамка 
 // 8 градиентов в стиле приложения (тёмная палитра)
 export const GRADIENT_BORDERS = [
-  { id: 'default', colors: ['#888888', '#555555'], label: 'Серый' },
-  { id: 'light',   colors: ['#aaaaaa', '#777777'], label: 'Светлый' },
-  { id: 'dark',    colors: ['#444444', '#222222'], label: 'Тёмный' },
-  { id: 'white',   colors: ['#cccccc', '#888888'], label: 'Белый' },
-  { id: 'black',   colors: ['#333333', '#111111'], label: 'Чёрный' },
-  { id: 'mid',     colors: ['#666666', '#444444'], label: 'Средний' },
+  // Нейтральные
+  { id: 'default', colors: ['#888888', '#555555'], label: 'Серый',     emoji: '🩶' },
+  { id: 'white',   colors: ['#cccccc', '#888888'], label: 'Серебро',   emoji: '🤍' },
+  { id: 'dark',    colors: ['#444444', '#1a1a1a'], label: 'Антрацит',  emoji: '🖤' },
+  // Тёплые
+  { id: 'sunset',  colors: ['#f97316', '#ec4899'], label: 'Закат',     emoji: '🌅' },
+  { id: 'rose',    colors: ['#fb7185', '#f43f5e'], label: 'Роза',      emoji: '🌹' },
+  { id: 'amber',   colors: ['#f59e0b', '#ef4444'], label: 'Янтарь',    emoji: '🍊' },
+  { id: 'peach',   colors: ['#fdba74', '#fb923c'], label: 'Персик',    emoji: '🍑' },
+  // Холодные
+  { id: 'ocean',   colors: ['#06b6d4', '#3b82f6'], label: 'Океан',     emoji: '🌊' },
+  { id: 'sky',     colors: ['#7dd3fc', '#38bdf8'], label: 'Небо',      emoji: '☁️' },
+  { id: 'mint',    colors: ['#34d399', '#059669'], label: 'Мята',      emoji: '🌿' },
+  { id: 'forest',  colors: ['#4ade80', '#16a34a'], label: 'Лес',       emoji: '🌲' },
+  // Фиолетовые
+  { id: 'purple',  colors: ['#a78bfa', '#7c3aed'], label: 'Фиолет.',   emoji: '💜' },
+  { id: 'violet',  colors: ['#e879f9', '#a21caf'], label: 'Лаванда',   emoji: '🪻' },
+  { id: 'aurora',  colors: ['#818cf8', '#ec4899'], label: 'Аврора',    emoji: '🌌' },
+  // Особые
+  { id: 'gold',    colors: ['#fbbf24', '#d97706'], label: 'Золото',    emoji: '✨' },
+  { id: 'rainbow', colors: ['#f97316', '#8b5cf6'], label: 'Радуга',    emoji: '🌈' },
+  { id: 'cosmic',  colors: ['#0ea5e9', '#8b5cf6'], label: 'Космос',    emoji: '🚀' },
+  { id: 'cherry',  colors: ['#f43f5e', '#7c3aed'], label: 'Вишня',     emoji: '🍒' },
 ];
 
 export function getDefaultGradient(name: string) {
@@ -141,6 +158,7 @@ interface Props {
   onLogout: () => void;
   onBack: () => void;
   onOpenAchievements: () => void;
+  onOpenMood: () => void;
   onOpenSettings: () => void;
   onOpenPro: () => void;
   onOpenStats: () => void;
@@ -164,6 +182,11 @@ export default function ProfileScreen({
   const [nameInput,      setNameInput]      = useState(myName);
   const [showGradPicker, setShowGradPicker] = useState(false);
   const [gradientId,     setGradientId]     = useState<string | undefined>(undefined);
+  useEffect(() => {
+    Storage.get<string>(`gradient_${myId}`).then(id => {
+      if (id) setGradientId(id);
+    }).catch(() => {});
+  }, [myId]);
   const planColor = PLAN_LIMITS[subscription.plan].color;
   const daysLeft  = getDaysLeft(subscription);
 
@@ -219,11 +242,18 @@ export default function ProfileScreen({
             </View>
           </TouchableOpacity>
           <TouchableOpacity onPress={() => { setNameInput(myName); setShowNameEdit(true); }}
-            style={{ marginTop: 12, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-            <Text style={{ fontSize: 22, fontWeight: '500', color: tk.text }}>{myName}</Text>
-            <Icon name="edit" color={tk.text3} />
+            activeOpacity={0.7}
+            style={{ marginTop: 12, flexDirection: 'row', alignItems: 'center', gap: 6,
+              paddingHorizontal: 12, paddingVertical: 6,
+              backgroundColor: tk.bg2, borderRadius: 12,
+              borderWidth: 1, borderColor: tk.border }}>
+            <Text style={{ fontSize: 18, fontWeight: '600', color: tk.text }}>{myName}</Text>
+            <Icon name="edit" color={tk.text2} />
           </TouchableOpacity>
-          <Text style={{ fontSize: 13, color: tk.text3, marginTop: 2 }}>{user?.email}</Text>
+          <Text style={{ fontSize: 11, color: tk.text3, marginTop: 5 }}>
+            {lang === 'en' ? 'Tap to change name' : 'Нажми чтобы изменить имя'}
+          </Text>
+          <Text style={{ fontSize: 12, color: tk.text3, marginTop: 1 }}>{user?.email}</Text>
 
           {/* Бейдж плана */}
           <TouchableOpacity onPress={onOpenPro}
@@ -255,7 +285,7 @@ export default function ProfileScreen({
         <View style={{ flexDirection: 'row', gap: 10, marginTop: 16, marginBottom: 4 }}>
           {[
             { value: habitCount.toString(), label: (lang === 'en' ? 'habits' : 'привычек'), color: tk.text },
-            { value: `${maxStreak}`, label: (lang === 'en' ? 'best streak' : lang==='uk' ? 'рекорд серії' : 'рекорд серии'), color: maxStreak >= 30 ? '#D4AF37' : tk.text },
+            { value: `${maxStreak}`, label: (lang === 'en' ? 'best streak' : lang==='uk' ? 'рекорд серії' : 'рекорд серии'), color: maxStreak >= 30 ? tk.accent : tk.text },
             { value: totalDone.toString(), label: (lang === 'en' ? 'done' : 'выполнено'), color: tk.text2 },
           ].map((s, i) => (
             <View key={i} style={{ flex: 1, backgroundColor: tk.bg2, borderRadius: 14,
@@ -465,37 +495,53 @@ export default function ProfileScreen({
             paddingHorizontal: 24 }}>
             <View style={{ width: 36, height: 4, backgroundColor: tk.border,
               borderRadius: 2, alignSelf: 'center', marginBottom: 20 }}/>
-            <Text style={{ fontSize: 17, fontWeight: '700', color: tk.text, marginBottom: 6 }}>
-              {(lang === 'en' ? 'Choose border' : 'Выберите рамку')}
+            <Text style={{ fontSize: 17, fontWeight: '700', color: tk.text, marginBottom: 4 }}>
+              {(lang === 'en' ? 'Avatar style' : 'Стиль аватарки')}
             </Text>
             <Text style={{ fontSize: 12, color: tk.text3, marginBottom: 20 }}>
-              {(lang === 'en' ? 'Gradient around your avatar' : 'Градиент вокруг аватарки')}
+              {(lang === 'en' ? 'Pick a colour — your partner will see it too' : 'Партнёр тоже увидит твой цвет')}
             </Text>
-            <View style={{ alignItems: 'center', marginBottom: 24 }}>
-              <InitialAvatar name={myName} size={72} gradientId={gradientId} tk={tk} />
+            {/* Предпросмотр */}
+            <View style={{ alignItems: 'center', marginBottom: 20, gap: 6 }}>
+              <InitialAvatar name={myName} size={80} gradientId={gradientId} tk={tk} />
+              <Text style={{ fontSize: 12, color: tk.text3 }}>
+                {(() => {
+                  const cur = GRADIENT_BORDERS.find(g => g.id === (gradientId || getDefaultGradient(myName).id));
+                  return cur ? `${cur.emoji}  ${cur.label}` : '';
+                })()}
+              </Text>
             </View>
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12, justifyContent: 'center', marginBottom: 20 }}>
+            {/* Сетка цветов */}
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, justifyContent: 'center', marginBottom: 20 }}>
               {GRADIENT_BORDERS.map(g => {
                 const isSelected = (gradientId || getDefaultGradient(myName).id) === g.id;
                 return (
                   <TouchableOpacity key={g.id}
                     onPress={() => setGradientId(g.id)}
-                    style={{ alignItems: 'center', gap: 6 }}>
-                    <View style={{ width: 52, height: 52, borderRadius: 26,
+                    style={{ alignItems: 'center', gap: 5, width: 56 }}>
+                    <View style={{
+                      width: 48, height: 48, borderRadius: 24,
                       padding: 3, backgroundColor: g.colors[0],
-                      borderWidth: isSelected ? 3 : 0, borderColor: tk.text }}>
+                      borderWidth: isSelected ? 3 : 1.5,
+                      borderColor: isSelected ? tk.text : 'transparent',
+                      shadowColor: isSelected ? g.colors[0] : 'transparent',
+                      shadowOpacity: isSelected ? 0.6 : 0,
+                      shadowRadius: 6, elevation: isSelected ? 4 : 0,
+                    }}>
                       <View style={{ position: 'absolute', right: 3, bottom: 3,
-                        width: 22, height: 22, borderRadius: 11,
-                        backgroundColor: g.colors[1], opacity: 0.85 }} />
-                      <View style={{ flex: 1, borderRadius: 26,
+                        width: 18, height: 18, borderRadius: 9,
+                        backgroundColor: g.colors[1], opacity: 0.9 }} />
+                      <View style={{ flex: 1, borderRadius: 21,
                         backgroundColor: tk.bg2, alignItems: 'center', justifyContent: 'center' }}>
-                        <Text style={{ fontSize: 15, fontWeight: '700', color: tk.text }}>
+                        <Text style={{ fontSize: 13, fontWeight: '700', color: tk.text }}>
                           {myName?.[0]?.toUpperCase() || '?'}
                         </Text>
                       </View>
                     </View>
-                    <Text style={{ fontSize: 9, color: isSelected ? tk.text : tk.text3,
-                      fontWeight: isSelected ? '700' : '400' }}>{g.label}</Text>
+                    <Text style={{ fontSize: 8, color: isSelected ? tk.text : tk.text3,
+                      fontWeight: isSelected ? '700' : '400', textAlign: 'center' }}>
+                      {g.emoji}
+                    </Text>
                   </TouchableOpacity>
                 );
               })}
