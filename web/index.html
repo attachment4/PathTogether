@@ -73,15 +73,36 @@ img{max-width:100%;display:block}
 .btn-lg{padding:16px 28px;font-size:16px}
 
 /* ---------- device frame ---------- */
-.device{position:relative;width:var(--dw,280px);aspect-ratio:396/874;border-radius:42px;
-  background:var(--bezel);padding:9px;
-  box-shadow:0 34px 70px rgba(0,0,0,.55),0 6px 18px rgba(0,0,0,.4),inset 0 1px 1px rgba(255,255,255,.08)}
-.device::before{content:"";position:absolute;top:8px;left:50%;transform:translateX(-50%);
-  width:34%;height:5px;border-radius:3px;background:rgba(255,255,255,.07);z-index:3}
-.device .screen{width:100%;height:100%;border-radius:33px;overflow:hidden;background:#0a0a0a;position:relative}
+.device{position:relative;width:var(--dw,280px);aspect-ratio:392/867;border-radius:46px;
+  background:var(--bezel);padding:10px;
+  box-shadow:0 40px 80px rgba(0,0,0,.6),0 8px 22px rgba(0,0,0,.45),inset 0 1px 1px rgba(255,255,255,.1)}
+/* side buttons */
+.device::before{content:"";position:absolute;left:-2px;top:24%;width:3px;height:46px;border-radius:3px;
+  background:var(--border2);box-shadow:0 64px 0 var(--border2)}
+.device .screen{width:100%;height:100%;border-radius:38px;overflow:hidden;background:#0a0a0a;position:relative}
 .device .screen img{width:100%;height:100%;object-fit:cover;object-position:top center}
-.device .glare{position:absolute;inset:0;border-radius:33px;pointer-events:none;
-  background:linear-gradient(135deg,rgba(255,255,255,.10),transparent 35%);mix-blend-mode:screen}
+/* dynamic island */
+.device .screen::after{content:"";position:absolute;top:9px;left:50%;transform:translateX(-50%);
+  width:30%;height:9px;border-radius:6px;background:#000;z-index:3;opacity:.55}
+.device .glare{position:absolute;inset:0;border-radius:38px;pointer-events:none;overflow:hidden}
+.device .glare::before{content:"";position:absolute;top:-60%;left:-30%;width:60%;height:220%;
+  transform:rotate(18deg);background:linear-gradient(90deg,transparent,rgba(255,255,255,.13),transparent);
+  animation:sweep 7s ease-in-out infinite}
+@keyframes sweep{0%,100%{left:-40%}50%{left:120%}}
+
+/* floating glass chips around hero phone */
+.chip{position:absolute;z-index:6;display:inline-flex;align-items:center;gap:10px;
+  background:color-mix(in srgb,var(--bg2) 86%,transparent);border:1px solid var(--border2);
+  border-radius:15px;padding:10px 14px;font-size:13.5px;font-weight:600;color:var(--text);
+  white-space:nowrap;backdrop-filter:blur(8px);
+  box-shadow:0 18px 40px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.06);
+  opacity:0;animation:chipin .8s var(--ease) forwards,floatY 6s ease-in-out infinite}
+.chip .ic{width:30px;height:30px;border-radius:9px;display:grid;place-items:center;font-size:15px;
+  background:var(--accent-soft);color:var(--accent);flex-shrink:0}
+.chip b{font-weight:700}.chip small{display:block;font-size:11px;color:var(--text3);font-weight:500;margin-top:1px}
+@keyframes chipin{from{opacity:0;transform:translateY(16px) scale(.95)}to{opacity:1;transform:none}}
+@keyframes floatY{0%,100%{transform:translateY(0)}50%{transform:translateY(-12px)}}
+@media(max-width:1080px){.chip{display:none}}
 
 /* ---------- nav ---------- */
 header.nav{position:fixed;top:0;left:0;right:0;z-index:50;
@@ -120,12 +141,12 @@ h1{font-size:clamp(40px,7vw,76px);font-weight:900;letter-spacing:-.035em;line-he
 .hero-note{margin-top:18px;font-size:13px;color:var(--text3)}
 
 /* hero stage with layered devices */
-.stage{position:relative;height:640px;margin-top:24px}
+.stage{position:relative;height:700px;margin-top:24px}
 .dev-pos{position:absolute;left:50%;transition:transform .3s var(--ease);
   transform:translate(calc(-50% + var(--tx,0px)),var(--ty,0px)) rotate(var(--rot,0deg))}
-.p-main{--rot:0deg;z-index:3;top:10px}
-.p-left{--rot:-8deg;z-index:2;margin-left:-280px;top:96px;opacity:.92}
-.p-right{--rot:8deg;z-index:2;margin-left:280px;top:96px;opacity:.92}
+.p-main{--rot:0deg;z-index:3;top:14px}
+.p-left{--rot:-10deg;z-index:1;margin-left:-300px;top:150px;opacity:.45;filter:blur(2px)}
+.p-right{--rot:10deg;z-index:1;margin-left:300px;top:150px;opacity:.45;filter:blur(2px)}
 .p-left .device,.p-right .device{box-shadow:0 30px 60px rgba(0,0,0,.6)}
 .floaty{animation:float 6s ease-in-out infinite}
 .p-left .floaty{animation-duration:7s;animation-delay:.4s}
@@ -245,10 +266,10 @@ footer{border-top:1px solid var(--border);padding:56px 0 40px;margin-top:40px}
   .cards{grid-template-columns:1fr}.steps{grid-template-columns:1fr}.steps::before{display:none}
   .cta-band{grid-template-columns:1fr;padding:36px 24px;text-align:center}
   .cta-band .hero-cta{justify-content:center}.cta-img{display:none}
-  .stage{height:560px;display:flex;justify-content:center}
-  .p-left,.p-right{display:none}
+  .stage{height:600px;display:flex;justify-content:center}
+  .p-left,.p-right,.chip{display:none}
   .p-main{position:relative;left:auto;margin:0 auto;top:0;transform:none}
-  .p-main .device{--dw:270px!important}
+  .p-main .device{--dw:275px!important}
   .mobile-menu{position:fixed;inset:64px 0 auto 0;background:var(--bg);border-bottom:1px solid var(--border);
     z-index:49;display:none;flex-direction:column;padding:18px 24px 28px}
   .mobile-menu.open{display:flex}
@@ -297,9 +318,17 @@ footer{border-top:1px solid var(--border);padding:56px 0 40px;margin-top:40px}
     </div>
     <div class="hero-note reveal" style="transition-delay:.24s" data-i18n="hero_note">Бесплатно · Гостевой режим без регистрации</div>
     <div class="stage" id="stage">
-      <div class="dev-pos p-left" data-depth="12"><div class="device floaty" style="--dw:205px"><div class="screen"><img src="img/phone-habits.png" alt=""/><span class="glare"></span></div></div></div>
-      <div class="dev-pos p-right" data-depth="12"><div class="device floaty" style="--dw:205px"><div class="screen"><img src="img/phone-mood.png" alt=""/><span class="glare"></span></div></div></div>
-      <div class="dev-pos p-main" data-depth="22"><div class="device floaty" style="--dw:280px"><div class="screen"><img src="img/phone-today.png" alt="PathTogether — сегодня"/><span class="glare"></span></div></div></div>
+      <div class="dev-pos p-left" data-depth="10"><div class="device floaty" style="--dw:200px"><div class="screen"><img src="img/phone-habits.png" alt=""/><span class="glare"></span></div></div></div>
+      <div class="dev-pos p-right" data-depth="10"><div class="device floaty" style="--dw:200px"><div class="screen"><img src="img/phone-mood.png" alt=""/><span class="glare"></span></div></div></div>
+      <div class="dev-pos p-main" data-depth="20"><div class="device floaty" style="--dw:300px"><div class="screen"><img src="img/phone-today.png" alt="PathTogether — сегодня"/><span class="glare"></span></div></div></div>
+      <div class="chip" style="top:78px;left:5%;animation-delay:.2s" data-depth="46">
+        <span class="ic">🔥</span><span><b data-i18n="chip_streak_t">Серия 7 дней</b><small data-i18n="chip_streak_s">вместе с Анной</small></span></div>
+      <div class="chip" style="top:360px;left:0%;animation-delay:.5s" data-depth="60">
+        <span class="ic">✓</span><span><b data-i18n="chip_partner_t">Анна выполнила</b><small data-i18n="chip_partner_s">Утренняя пробежка</small></span></div>
+      <div class="chip" style="top:54px;right:6%;animation-delay:.35s" data-depth="46">
+        <span class="ic">😊</span><span><b data-i18n="chip_mood_t">Настроение дня</b><small data-i18n="chip_mood_s">90% за неделю</small></span></div>
+      <div class="chip" style="top:330px;right:1%;animation-delay:.65s" data-depth="60">
+        <span class="ic">🏆</span><span><b data-i18n="chip_ach_t">+20 достижений</b><small data-i18n="chip_ach_s">за серии и цели</small></span></div>
     </div>
   </div>
 </section>
@@ -475,6 +504,10 @@ const I18N={en:{
  hero_badge:"Shared habit tracker",
  hero_lead:"Build good habits with a partner, friend or team. See each other's progress in real time — and never let down the ones beside you.",
  hero_cta1:"Open in browser",hero_cta2:"Download for Android",hero_note:"Free · Guest mode, no sign-up required",
+ chip_streak_t:"7-day streak",chip_streak_s:"together with Anna",
+ chip_partner_t:"Anna completed",chip_partner_s:"Morning run",
+ chip_mood_t:"Mood of the day",chip_mood_s:"90% this week",
+ chip_ach_t:"+20 achievements",chip_ach_s:"for streaks & goals",
  proof_lang:"languages",proof_ach:"achievements",proof_theme:"Dark & light theme",proof_bio:"Biometric unlock",proof_realtime:"Real-time progress",proof_widget:"Home-screen widget",proof_qr:"Invite by QR",
  feat_eyebrow:"Features",feat_title:"Everything to stay on track together",feat_sub:"Not just a tracker — real support between close people.",
  f1_t:"Move as a pair",f1_p:"Create a pair or group and invite a partner via link or QR code. You instantly see what they did today.",
