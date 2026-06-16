@@ -81,9 +81,6 @@ img{max-width:100%;display:block}
   background:var(--border2);box-shadow:0 64px 0 var(--border2)}
 .device .screen{width:100%;border-radius:38px;overflow:hidden;background:#0a0a0a;position:relative}
 .device .screen img{display:block;width:100%;height:auto}
-/* dynamic island */
-.device .screen::after{content:"";position:absolute;top:9px;left:50%;transform:translateX(-50%);
-  width:30%;height:9px;border-radius:6px;background:#000;z-index:3;opacity:.55}
 .device .glare{position:absolute;inset:0;border-radius:38px;pointer-events:none;overflow:hidden}
 .device .glare::before{content:"";position:absolute;top:-60%;left:-30%;width:60%;height:220%;
   transform:rotate(18deg);background:linear-gradient(90deg,transparent,rgba(255,255,255,.13),transparent);
