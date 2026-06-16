@@ -11,18 +11,18 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
 <style>
 :root{
-  --accent:#48a070;
-  --accent-soft:rgba(72,160,112,.14);
-  --radius:14px;
+  --accent:#48a070; --accent2:#5fd093;
+  --accent-soft:rgba(72,160,112,.16);
   --maxw:1180px;
   --ease:cubic-bezier(.22,.61,.36,1);
 }
 [data-theme="dark"]{
   --bg:#0a0a0a; --bg2:#101010; --bg3:#161616;
-  --border:#222; --border2:#2c2c2c;
+  --border:#1f1f1f; --border2:#2c2c2c;
   --text:#fff; --text2:#a9a9a9; --text3:#6e6e6e;
-  --btn-text:#0a0a0a; --nav-bg:rgba(10,10,10,.72);
-  --glow:rgba(72,160,112,.20);
+  --btn-text:#0a0a0a; --nav-bg:rgba(10,10,10,.7);
+  --glow:rgba(72,160,112,.22);
+  --bezel:linear-gradient(155deg,#2c2c2e,#0c0c0d 55%,#1a1a1c);
 }
 [data-theme="light"]{
   --bg:#f6f6f4; --bg2:#fff; --bg3:#f0f0ee;
@@ -30,6 +30,7 @@
   --text:#0d0d0d; --text2:#5a5a5a; --text3:#9a9a9a;
   --btn-text:#fff; --nav-bg:rgba(246,246,244,.78);
   --glow:rgba(72,160,112,.16);
+  --bezel:linear-gradient(155deg,#d9d9d4,#bfbfba 55%,#cfcfca);
 }
 *{margin:0;padding:0;box-sizing:border-box}
 html{scroll-behavior:smooth}
@@ -43,22 +44,44 @@ a{color:inherit;text-decoration:none}
 img{max-width:100%;display:block}
 .wrap{max-width:var(--maxw);margin:0 auto;padding:0 24px}
 .accent{color:var(--accent)}
-.muted{color:var(--text2)}
+
+/* scroll progress */
+#progress{position:fixed;top:0;left:0;height:2px;width:0;z-index:60;
+  background:linear-gradient(90deg,var(--accent),var(--accent2));box-shadow:0 0 12px var(--accent)}
+
+/* ---------- accent shimmer word ---------- */
+.shine{position:relative;background:linear-gradient(100deg,var(--accent) 30%,var(--accent2) 50%,var(--accent) 70%);
+  background-size:200% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;
+  animation:shine 5s linear infinite}
+@keyframes shine{to{background-position:-200% 0}}
 
 /* ---------- buttons ---------- */
-.btn{
-  display:inline-flex;align-items:center;gap:8px;
-  font-weight:600;font-size:15px;line-height:1;
-  padding:13px 22px;border-radius:999px;border:1px solid transparent;
-  cursor:pointer;transition:.2s var(--ease);white-space:nowrap;
-}
+.btn{display:inline-flex;align-items:center;gap:8px;font-weight:600;font-size:15px;line-height:1;
+  padding:13px 22px;border-radius:999px;border:1px solid transparent;cursor:pointer;
+  transition:transform .2s var(--ease),box-shadow .25s var(--ease),background .2s,border-color .2s;
+  white-space:nowrap;position:relative;overflow:hidden}
+.btn>*{position:relative;z-index:1}
+.btn::after{content:"";position:absolute;inset:0;transform:translateX(-120%);
+  background:linear-gradient(110deg,transparent,rgba(255,255,255,.35),transparent);transition:none}
+.btn:hover::after{animation:sheen .7s var(--ease)}
+@keyframes sheen{to{transform:translateX(120%)}}
 .btn-primary{background:var(--text);color:var(--btn-text)}
-.btn-primary:hover{transform:translateY(-2px);box-shadow:0 10px 30px var(--glow)}
 .btn-accent{background:var(--accent);color:#fff}
-.btn-accent:hover{transform:translateY(-2px);box-shadow:0 10px 30px var(--glow)}
+.btn-primary:hover,.btn-accent:hover{transform:translateY(-2px);box-shadow:0 12px 34px var(--glow)}
 .btn-ghost{background:transparent;color:var(--text);border-color:var(--border2)}
-.btn-ghost:hover{border-color:var(--text);background:var(--bg3)}
+.btn-ghost:hover{border-color:var(--text);background:var(--bg3);transform:translateY(-2px)}
 .btn-lg{padding:16px 28px;font-size:16px}
+
+/* ---------- device frame ---------- */
+.device{position:relative;width:var(--dw,280px);aspect-ratio:404/884;border-radius:42px;
+  background:var(--bezel);padding:9px;
+  box-shadow:0 34px 70px rgba(0,0,0,.55),0 6px 18px rgba(0,0,0,.4),inset 0 1px 1px rgba(255,255,255,.08)}
+.device::before{content:"";position:absolute;top:8px;left:50%;transform:translateX(-50%);
+  width:34%;height:5px;border-radius:3px;background:rgba(255,255,255,.07);z-index:3}
+.device .screen{width:100%;height:100%;border-radius:33px;overflow:hidden;background:#0a0a0a;position:relative}
+.device .screen img{width:100%;height:100%;object-fit:cover;object-position:top center;transform:scale(1.045)}
+.device .glare{position:absolute;inset:0;border-radius:33px;pointer-events:none;
+  background:linear-gradient(135deg,rgba(255,255,255,.10),transparent 35%);mix-blend-mode:screen}
 
 /* ---------- nav ---------- */
 header.nav{position:fixed;top:0;left:0;right:0;z-index:50;
@@ -69,110 +92,130 @@ header.nav.scrolled{border-bottom-color:var(--border)}
 .logo{display:flex;align-items:center;gap:10px;font-weight:800;font-size:17px;letter-spacing:-.02em}
 .logo img{width:26px;height:26px;border-radius:7px}
 .nav-links{display:flex;gap:28px;margin-left:18px}
-.nav-links a{font-size:14.5px;color:var(--text2);transition:color .2s}
-.nav-links a:hover{color:var(--text)}
+.nav-links a{font-size:14.5px;color:var(--text2);position:relative;transition:color .2s}
+.nav-links a::after{content:"";position:absolute;left:0;bottom:-5px;height:2px;width:0;background:var(--accent);transition:width .25s var(--ease)}
+.nav-links a:hover{color:var(--text)}.nav-links a:hover::after{width:100%}
 .nav-right{margin-left:auto;display:flex;align-items:center;gap:10px}
 .icon-btn{width:38px;height:38px;border-radius:999px;border:1px solid var(--border2);
   background:transparent;color:var(--text);display:grid;place-items:center;cursor:pointer;
   font-size:13px;font-weight:700;transition:.2s}
-.icon-btn:hover{background:var(--bg3)}
+.icon-btn:hover{background:var(--bg3);transform:translateY(-1px)}
 .hamburger{display:none}
 
 /* ---------- hero ---------- */
-.hero{padding:150px 0 80px;text-align:center;position:relative}
-.hero::before{content:"";position:absolute;top:40px;left:50%;transform:translateX(-50%);
-  width:680px;height:680px;max-width:90vw;border-radius:50%;
-  background:radial-gradient(circle,var(--accent-soft),transparent 65%);
-  filter:blur(30px);z-index:0;pointer-events:none}
+.hero{padding:140px 0 40px;text-align:center;position:relative}
+.hero .glow{position:absolute;top:60px;left:50%;width:760px;height:760px;max-width:96vw;border-radius:50%;
+  transform:translateX(-50%);z-index:0;pointer-events:none;filter:blur(36px);
+  background:radial-gradient(circle,var(--accent-soft),transparent 64%);animation:breathe 9s var(--ease) infinite}
+@keyframes breathe{0%,100%{opacity:.7;transform:translateX(-50%) scale(1)}50%{opacity:1;transform:translateX(-50%) scale(1.12)}}
 .hero>*{position:relative;z-index:1}
 .badge{display:inline-flex;align-items:center;gap:8px;font-size:13px;color:var(--text2);
-  border:1px solid var(--border2);border-radius:999px;padding:7px 14px;margin-bottom:28px}
-.badge .dot{width:7px;height:7px;border-radius:50%;background:var(--accent);box-shadow:0 0 10px var(--accent)}
+  border:1px solid var(--border2);border-radius:999px;padding:7px 14px;margin-bottom:28px;
+  background:var(--bg2)}
+.badge .dot{width:7px;height:7px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 0 var(--accent);animation:pulse 2.4s infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(72,160,112,.6)}70%{box-shadow:0 0 0 9px rgba(72,160,112,0)}100%{box-shadow:0 0 0 0 rgba(72,160,112,0)}}
 h1{font-size:clamp(40px,7vw,76px);font-weight:900;letter-spacing:-.035em;line-height:1.02}
-.hero p.lead{font-size:clamp(17px,2.4vw,21px);color:var(--text2);max-width:560px;
-  margin:24px auto 36px;line-height:1.55}
+.hero p.lead{font-size:clamp(17px,2.4vw,21px);color:var(--text2);max-width:560px;margin:24px auto 36px;line-height:1.55}
 .hero-cta{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
 .hero-note{margin-top:18px;font-size:13px;color:var(--text3)}
-.hero-phones{margin-top:64px;display:flex;justify-content:center;gap:0;position:relative}
-.hero-phones img{width:270px;filter:drop-shadow(0 30px 60px rgba(0,0,0,.55))}
-.hero-phones img.side{width:230px;align-self:center;opacity:.92}
-.hero-phones img:nth-child(1){transform:translateX(40px) rotate(-5deg)}
-.hero-phones img:nth-child(3){transform:translateX(-40px) rotate(5deg)}
-.hero-phones img:nth-child(2){z-index:2}
 
-/* ---------- marquee / proof ---------- */
+/* hero stage with layered devices */
+.stage{position:relative;height:600px;margin-top:24px}
+.dev-pos{position:absolute;left:50%;transition:transform .3s var(--ease);
+  transform:translate(calc(-50% + var(--tx,0px)),var(--ty,0px)) rotate(var(--rot,0deg))}
+.p-main{--rot:0deg;z-index:3;top:6px}
+.p-left{--rot:-9deg;z-index:2;margin-left:-330px;top:84px;opacity:.92}
+.p-right{--rot:9deg;z-index:2;margin-left:330px;top:84px;opacity:.92}
+.p-left .device,.p-right .device{box-shadow:0 30px 60px rgba(0,0,0,.6)}
+.floaty{animation:float 6s ease-in-out infinite}
+.p-left .floaty{animation-duration:7s;animation-delay:.4s}
+.p-right .floaty{animation-duration:7.6s;animation-delay:.8s}
+@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-15px)}}
+/* bottom fade so devices melt into page */
+.stage::after{content:"";position:absolute;left:0;right:0;bottom:0;height:120px;z-index:4;pointer-events:none;
+  background:linear-gradient(transparent,var(--bg))}
+
+/* ---------- marquee proof ---------- */
 .proof{border-top:1px solid var(--border);border-bottom:1px solid var(--border);
-  padding:34px 0;margin-top:40px}
-.proof-grid{display:flex;flex-wrap:wrap;justify-content:center;gap:14px}
-.pill{font-size:14px;color:var(--text2);border:1px solid var(--border2);
-  border-radius:999px;padding:9px 18px}
-.pill b{color:var(--text);font-weight:600}
+  padding:26px 0;margin-top:24px;overflow:hidden;
+  -webkit-mask-image:linear-gradient(90deg,transparent,#000 8%,#000 92%,transparent);
+          mask-image:linear-gradient(90deg,transparent,#000 8%,#000 92%,transparent)}
+.track{display:flex;gap:14px;width:max-content;animation:marq 28s linear infinite}
+.proof:hover .track{animation-play-state:paused}
+@keyframes marq{to{transform:translateX(-50%)}}
+.pill{font-size:14px;color:var(--text2);border:1px solid var(--border2);border-radius:999px;
+  padding:9px 18px;white-space:nowrap;background:var(--bg2)}
+.pill b{color:var(--text);font-weight:700}
 
-/* ---------- section base ---------- */
+/* ---------- sections ---------- */
 section{padding:96px 0}
-.eyebrow{font-size:13px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;
-  color:var(--accent);margin-bottom:14px}
+.eyebrow{font-size:13px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--accent);margin-bottom:14px}
 h2{font-size:clamp(30px,4.4vw,46px);font-weight:800;letter-spacing:-.03em;line-height:1.08}
-.section-head{max-width:620px;margin:0 auto 56px;text-align:center}
+.section-head{max-width:640px;margin:0 auto 56px;text-align:center}
 .section-head p{color:var(--text2);font-size:18px;margin-top:16px}
 
-/* ---------- feature rows ---------- */
-.feature{display:grid;grid-template-columns:1fr 1fr;gap:64px;align-items:center;
-  padding:60px 0;border-top:1px solid var(--border)}
+/* feature rows */
+.feature{display:grid;grid-template-columns:1fr 1fr;gap:64px;align-items:center;padding:64px 0;border-top:1px solid var(--border)}
 .feature:first-of-type{border-top:none}
 .feature.rev .ftext{order:2}
 .ftext h3{font-size:clamp(26px,3.6vw,38px);font-weight:800;letter-spacing:-.025em;line-height:1.1}
 .ftext p{color:var(--text2);font-size:17px;margin-top:18px;max-width:440px}
 .flist{margin-top:26px;display:flex;flex-direction:column;gap:12px}
 .flist li{list-style:none;display:flex;gap:12px;align-items:flex-start;color:var(--text2);font-size:15.5px}
-.flist svg{flex-shrink:0;margin-top:2px;color:var(--accent)}
+.flist svg{flex-shrink:0;margin-top:1px;color:var(--accent)}
 .fimg{display:flex;justify-content:center;position:relative}
-.fimg::before{content:"";position:absolute;inset:8% 18%;border-radius:40px;
-  background:radial-gradient(circle,var(--accent-soft),transparent 70%);filter:blur(40px)}
-.fimg img{width:300px;position:relative;filter:drop-shadow(0 24px 50px rgba(0,0,0,.5))}
+.fimg::before{content:"";position:absolute;inset:6% 14%;border-radius:50%;
+  background:radial-gradient(circle,var(--accent-soft),transparent 70%);filter:blur(44px)}
+.fimg .device{--dw:300px;position:relative}
 
-/* ---------- cards grid ---------- */
+/* cards grid */
 .cards{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
-.card{background:var(--bg2);border:1px solid var(--border);border-radius:18px;
-  padding:30px;transition:.25s var(--ease)}
-.card:hover{transform:translateY(-4px);border-color:var(--border2);background:var(--bg3)}
+.card{background:var(--bg2);border:1px solid var(--border);border-radius:18px;padding:30px;
+  transition:transform .28s var(--ease),border-color .28s,background .28s;position:relative;overflow:hidden}
+.card::before{content:"";position:absolute;inset:0;opacity:0;transition:opacity .3s;
+  background:radial-gradient(400px circle at var(--mx,50%) var(--my,0%),var(--accent-soft),transparent 60%)}
+.card:hover{transform:translateY(-6px);border-color:var(--border2)}
+.card:hover::before{opacity:1}
 .card .num{font-size:13px;font-weight:700;color:var(--accent);margin-bottom:18px}
 .card h4{font-size:19px;font-weight:700;letter-spacing:-.01em}
 .card p{color:var(--text2);font-size:15px;margin-top:10px}
 
-/* ---------- steps ---------- */
-.steps{display:grid;grid-template-columns:repeat(3,1fr);gap:24px}
-.step{position:relative;padding-top:22px}
-.step .sn{font-size:40px;font-weight:900;color:var(--accent);letter-spacing:-.04em;opacity:.9}
-.step h4{font-size:20px;font-weight:700;margin-top:12px}
+/* steps */
+.steps{display:grid;grid-template-columns:repeat(3,1fr);gap:24px;position:relative}
+.steps::before{content:"";position:absolute;top:42px;left:12%;right:12%;height:1px;
+  background:linear-gradient(90deg,transparent,var(--border2),transparent)}
+.step{position:relative;padding-top:8px}
+.step .sn{width:64px;height:64px;border-radius:18px;display:grid;place-items:center;
+  font-size:24px;font-weight:900;color:var(--accent);background:var(--bg2);border:1px solid var(--border2);
+  position:relative;z-index:1}
+.step h4{font-size:20px;font-weight:700;margin-top:20px}
 .step p{color:var(--text2);font-size:15.5px;margin-top:10px;max-width:300px}
 
-/* ---------- CTA band ---------- */
-.cta-band{background:var(--bg2);border:1px solid var(--border);border-radius:28px;
-  padding:56px;display:grid;grid-template-columns:1.1fr .9fr;gap:40px;align-items:center;
-  position:relative;overflow:hidden}
-.cta-band::before{content:"";position:absolute;top:-40%;right:-10%;width:520px;height:520px;
-  border-radius:50%;background:radial-gradient(circle,var(--accent-soft),transparent 65%);filter:blur(40px)}
+/* CTA */
+.cta-band{background:var(--bg2);border:1px solid var(--border);border-radius:28px;padding:56px;
+  display:grid;grid-template-columns:1.1fr .9fr;gap:40px;align-items:center;position:relative;overflow:hidden}
+.cta-band::before{content:"";position:absolute;top:-40%;right:-10%;width:520px;height:520px;border-radius:50%;
+  background:radial-gradient(circle,var(--accent-soft),transparent 65%);filter:blur(40px);animation:breathe 10s var(--ease) infinite}
 .cta-band>*{position:relative;z-index:1}
 .cta-band h2{font-size:clamp(28px,3.8vw,42px)}
 .cta-band p{color:var(--text2);font-size:18px;margin:16px 0 28px}
 .cta-band .hero-cta{justify-content:flex-start}
 .cta-img{display:flex;justify-content:center}
-.cta-img img{width:260px;filter:drop-shadow(0 24px 50px rgba(0,0,0,.5))}
+.cta-img .device{--dw:250px;animation:float 6.5s ease-in-out infinite}
 
-/* ---------- FAQ ---------- */
+/* FAQ */
 .faq{max-width:760px;margin:0 auto}
 .qa{border-top:1px solid var(--border)}
 .qa:last-child{border-bottom:1px solid var(--border)}
 .qa button{width:100%;background:none;border:none;color:var(--text);cursor:pointer;
   display:flex;justify-content:space-between;align-items:center;gap:20px;
   padding:24px 4px;font-size:18px;font-weight:600;text-align:left;font-family:inherit}
-.qa .ico{flex-shrink:0;transition:transform .3s var(--ease);color:var(--text2)}
-.qa.open .ico{transform:rotate(45deg);color:var(--accent)}
+.qa .ico{flex-shrink:0;transition:transform .3s var(--ease);color:var(--text2);font-size:22px;line-height:1}
+.qa.open .ico{transform:rotate(135deg);color:var(--accent)}
 .qa .ans{max-height:0;overflow:hidden;transition:max-height .35s var(--ease)}
 .qa .ans p{color:var(--text2);font-size:16px;padding:0 4px 24px;max-width:640px}
 
-/* ---------- footer ---------- */
+/* footer */
 footer{border-top:1px solid var(--border);padding:56px 0 40px;margin-top:40px}
 .foot-grid{display:flex;justify-content:space-between;flex-wrap:wrap;gap:40px}
 .foot-links{display:flex;gap:56px;flex-wrap:wrap}
@@ -182,32 +225,30 @@ footer{border-top:1px solid var(--border);padding:56px 0 40px;margin-top:40px}
 .foot-bottom{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:16px;
   margin-top:48px;padding-top:24px;border-top:1px solid var(--border);color:var(--text3);font-size:13.5px}
 
-/* ---------- reveal anim ---------- */
-.reveal{opacity:0;transform:translateY(24px);transition:opacity .7s var(--ease),transform .7s var(--ease)}
+/* reveal anims */
+.reveal{opacity:0;transform:translateY(30px);transition:opacity .7s var(--ease),transform .7s var(--ease)}
+.reveal.from-l{transform:translateX(-40px)}
+.reveal.from-r{transform:translateX(40px)}
+.reveal.scale{transform:scale(.94)}
 .reveal.in{opacity:1;transform:none}
+[data-stagger]>*{opacity:0;transform:translateY(24px);transition:opacity .6s var(--ease),transform .6s var(--ease)}
+[data-stagger].in>*{opacity:1;transform:none}
+@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}.reveal,[data-stagger]>*{opacity:1!important;transform:none!important}}
 
-/* ---------- mobile ---------- */
+/* mobile */
 @media(max-width:880px){
-  h1{font-size:clamp(30px,8.6vw,46px);overflow-wrap:break-word}
-  .hero p.lead{font-size:16.5px}
-  h2{font-size:clamp(26px,6.4vw,34px)}
-  .ftext h3{font-size:clamp(24px,6vw,30px)}
-  .cta-band h2{font-size:clamp(26px,6.4vw,34px)}
-  .nav-links{display:none}
-  .hamburger{display:grid}
-  .nav-right .desktop-only{display:none}
+  .nav-links{display:none}.hamburger{display:grid}.nav-right .desktop-only{display:none}
   .feature{grid-template-columns:1fr;gap:36px;text-align:center}
   .feature.rev .ftext{order:0}
-  .flist{align-items:center}.flist li{justify-content:center;text-align:left}
+  .flist{align-items:center}.flist li{justify-content:flex-start;text-align:left;max-width:300px;margin:0 auto}
   .ftext p{margin-left:auto;margin-right:auto}
-  .cards{grid-template-columns:1fr}
-  .steps{grid-template-columns:1fr}
+  .cards{grid-template-columns:1fr}.steps{grid-template-columns:1fr}.steps::before{display:none}
   .cta-band{grid-template-columns:1fr;padding:36px 24px;text-align:center}
-  .cta-band .hero-cta{justify-content:center}
-  .cta-img{display:none}
-  .hero-phones img.side{display:none}
-  .hero-phones img:nth-child(2){transform:none}
-  /* mobile menu panel */
+  .cta-band .hero-cta{justify-content:center}.cta-img{display:none}
+  .stage{height:560px;display:flex;justify-content:center}
+  .p-left,.p-right{display:none}
+  .p-main{position:relative;left:auto;margin:0 auto;top:0;transform:none}
+  .p-main .device{--dw:270px!important}
   .mobile-menu{position:fixed;inset:64px 0 auto 0;background:var(--bg);border-bottom:1px solid var(--border);
     z-index:49;display:none;flex-direction:column;padding:18px 24px 28px}
   .mobile-menu.open{display:flex}
@@ -217,8 +258,8 @@ footer{border-top:1px solid var(--border);padding:56px 0 40px;margin-top:40px}
 </style>
 </head>
 <body>
+<div id="progress"></div>
 
-<!-- NAV -->
 <header class="nav" id="nav">
   <div class="wrap nav-inner">
     <a href="#" class="logo"><img src="img/icon.png" alt="PathTogether"/>PathTogether</a>
@@ -245,31 +286,34 @@ footer{border-top:1px solid var(--border);padding:56px 0 40px;margin-top:40px}
 
 <!-- HERO -->
 <section class="hero">
+  <div class="glow"></div>
   <div class="wrap">
-    <span class="badge"><span class="dot"></span><span data-i18n="hero_badge">Совместный трекер привычек</span></span>
-    <h1 data-i18n="hero_title">Стройте привычки <span class="accent">вместе</span></h1>
-    <p class="lead" data-i18n="hero_lead">Формируйте полезные привычки с партнёром, другом или командой. Видьте прогресс друг друга в реальном времени — и не подводите тех, кто рядом.</p>
-    <div class="hero-cta">
+    <span class="badge reveal"><span class="dot"></span><span data-i18n="hero_badge">Совместный трекер привычек</span></span>
+    <h1 class="reveal" style="transition-delay:.05s">Стройте привычки <span class="shine">вместе</span></h1>
+    <p class="lead reveal" style="transition-delay:.12s" data-i18n="hero_lead">Формируйте полезные привычки с партнёром, другом или командой. Видьте прогресс друг друга в реальном времени — и не подводите тех, кто рядом.</p>
+    <div class="hero-cta reveal" style="transition-delay:.18s">
       <a href="app/" class="btn btn-primary btn-lg" data-i18n="hero_cta1">Открыть в браузере</a>
       <a href="#download" class="btn btn-ghost btn-lg" data-i18n="hero_cta2">Скачать для Android</a>
     </div>
-    <div class="hero-note" data-i18n="hero_note">Бесплатно · Гостевой режим без регистрации</div>
-    <div class="hero-phones">
-      <img class="side" src="img/phone-habits.png" alt="" />
-      <img src="img/phone-today.png" alt="PathTogether — сегодня" />
-      <img class="side" src="img/phone-mood.png" alt="" />
+    <div class="hero-note reveal" style="transition-delay:.24s" data-i18n="hero_note">Бесплатно · Гостевой режим без регистрации</div>
+    <div class="stage" id="stage">
+      <div class="dev-pos p-left" data-depth="18"><div class="device floaty" style="--dw:235px"><div class="screen"><img src="img/phone-habits.png" alt=""/><span class="glare"></span></div></div></div>
+      <div class="dev-pos p-right" data-depth="18"><div class="device floaty" style="--dw:235px"><div class="screen"><img src="img/phone-mood.png" alt=""/><span class="glare"></span></div></div></div>
+      <div class="dev-pos p-main" data-depth="34"><div class="device floaty" style="--dw:312px"><div class="screen"><img src="img/phone-today.png" alt="PathTogether — сегодня"/><span class="glare"></span></div></div></div>
     </div>
   </div>
 </section>
 
-<!-- PROOF -->
+<!-- PROOF marquee -->
 <div class="proof">
-  <div class="wrap proof-grid">
+  <div class="track" id="track">
     <span class="pill"><b>5</b>&nbsp;<span data-i18n="proof_lang">языков</span></span>
     <span class="pill"><b>20+</b>&nbsp;<span data-i18n="proof_ach">достижений</span></span>
     <span class="pill" data-i18n="proof_theme">Тёмная и светлая тема</span>
     <span class="pill" data-i18n="proof_bio">Биометрический вход</span>
     <span class="pill" data-i18n="proof_realtime">Прогресс в реальном времени</span>
+    <span class="pill" data-i18n="proof_widget">Виджет на экране</span>
+    <span class="pill" data-i18n="proof_qr">Приглашение по QR</span>
   </div>
 </div>
 
@@ -282,43 +326,43 @@ footer{border-top:1px solid var(--border);padding:56px 0 40px;margin-top:40px}
       <p data-i18n="feat_sub">Не просто трекер, а живая поддержка между близкими людьми.</p>
     </div>
 
-    <div class="feature reveal">
-      <div class="ftext">
+    <div class="feature">
+      <div class="ftext reveal from-l">
         <h3 data-i18n="f1_t">Двигайтесь вдвоём</h3>
         <p data-i18n="f1_p">Создайте пару или группу и пригласите партнёра по ссылке или QR-коду. Вы сразу видите, что он сделал сегодня.</p>
-        <ul class="flist">
+        <ul class="flist" data-stagger>
           <li data-check data-i18n="f1_l1">Общее пространство для пары и команды</li>
           <li data-check data-i18n="f1_l2">Серии, общие цели и дни вместе</li>
           <li data-check data-i18n="f1_l3">Пуш, когда партнёр выполнил привычку</li>
         </ul>
       </div>
-      <div class="fimg"><img src="img/phone-together.png" alt="Together" /></div>
+      <div class="fimg reveal from-r"><div class="device" data-tilt><div class="screen"><img src="img/phone-together.png" alt="Together"/><span class="glare"></span></div></div></div>
     </div>
 
-    <div class="feature rev reveal">
-      <div class="ftext">
+    <div class="feature rev">
+      <div class="ftext reveal from-r">
         <h3 data-i18n="f2_t">Все привычки в одном месте</h3>
         <p data-i18n="f2_p">Гибкое расписание по дням недели, цель, описание и напоминания. Отслеживай каждый день и не прерывай серию.</p>
-        <ul class="flist">
+        <ul class="flist" data-stagger>
           <li data-check data-i18n="f2_l1">Дни недели, цель и напоминания</li>
           <li data-check data-i18n="f2_l2">Календарь выполнения за любой период</li>
           <li data-check data-i18n="f2_l3">Виджет на главном экране</li>
         </ul>
       </div>
-      <div class="fimg"><img src="img/phone-habits.png" alt="Habits" /></div>
+      <div class="fimg reveal from-l"><div class="device" data-tilt><div class="screen"><img src="img/phone-today.png" alt="Habits"/><span class="glare"></span></div></div></div>
     </div>
 
-    <div class="feature reveal">
-      <div class="ftext">
+    <div class="feature">
+      <div class="ftext reveal from-l">
         <h3 data-i18n="f3_t">Следи за настроением</h3>
         <p data-i18n="f3_p">Отмечай настроение каждый день, добавляй заметки к привычкам и смотри подробную статистику прогресса.</p>
-        <ul class="flist">
+        <ul class="flist" data-stagger>
           <li data-check data-i18n="f3_l1">Ежедневный трекер настроения</li>
           <li data-check data-i18n="f3_l2">Статистика — твоя и партнёра</li>
           <li data-check data-i18n="f3_l3">Связь настроения и привычек</li>
         </ul>
       </div>
-      <div class="fimg"><img src="img/phone-mood.png" alt="Mood" /></div>
+      <div class="fimg reveal from-r"><div class="device" data-tilt><div class="screen"><img src="img/phone-mood.png" alt="Mood"/><span class="glare"></span></div></div></div>
     </div>
   </div>
 </section>
@@ -326,13 +370,13 @@ footer{border-top:1px solid var(--border);padding:56px 0 40px;margin-top:40px}
 <!-- CARDS -->
 <section style="padding-top:20px">
   <div class="wrap">
-    <div class="cards">
-      <div class="card reveal"><div class="num">01</div><h4 data-i18n="c1_t">Календарь</h4><p data-i18n="c1_p">История выполнения за любой период наглядно.</p></div>
-      <div class="card reveal"><div class="num">02</div><h4 data-i18n="c2_t">Статистика</h4><p data-i18n="c2_p">Ваш прогресс и прогресс партнёра в одном месте.</p></div>
-      <div class="card reveal"><div class="num">03</div><h4 data-i18n="c3_t">Достижения</h4><p data-i18n="c3_p">20+ наград за серии, выполнения и совместную работу.</p></div>
-      <div class="card reveal"><div class="num">04</div><h4 data-i18n="c4_t">Уведомления партнёра</h4><p data-i18n="c4_p">Получай пуш, когда близкий человек выполнил привычку.</p></div>
-      <div class="card reveal"><div class="num">05</div><h4 data-i18n="c5_t">Гостевой режим</h4><p data-i18n="c5_p">Попробуй без регистрации — данные останутся с тобой.</p></div>
-      <div class="card reveal"><div class="num">06</div><h4 data-i18n="c6_t">5 языков</h4><p data-i18n="c6_p">Русский, английский, украинский, белорусский, казахский.</p></div>
+    <div class="cards" data-stagger>
+      <div class="card"><div class="num">01</div><h4 data-i18n="c1_t">Календарь</h4><p data-i18n="c1_p">История выполнения за любой период наглядно.</p></div>
+      <div class="card"><div class="num">02</div><h4 data-i18n="c2_t">Статистика</h4><p data-i18n="c2_p">Ваш прогресс и прогресс партнёра в одном месте.</p></div>
+      <div class="card"><div class="num">03</div><h4 data-i18n="c3_t">Достижения</h4><p data-i18n="c3_p">20+ наград за серии, выполнения и совместную работу.</p></div>
+      <div class="card"><div class="num">04</div><h4 data-i18n="c4_t">Уведомления партнёра</h4><p data-i18n="c4_p">Получай пуш, когда близкий человек выполнил привычку.</p></div>
+      <div class="card"><div class="num">05</div><h4 data-i18n="c5_t">Гостевой режим</h4><p data-i18n="c5_p">Попробуй без регистрации — данные останутся с тобой.</p></div>
+      <div class="card"><div class="num">06</div><h4 data-i18n="c6_t">5 языков</h4><p data-i18n="c6_p">Русский, английский, украинский, белорусский, казахский.</p></div>
     </div>
   </div>
 </section>
@@ -344,10 +388,10 @@ footer{border-top:1px solid var(--border);padding:56px 0 40px;margin-top:40px}
       <div class="eyebrow" data-i18n="how_eyebrow">Как это работает</div>
       <h2 data-i18n="how_title">Три шага до первой серии</h2>
     </div>
-    <div class="steps">
-      <div class="step reveal"><div class="sn">01</div><h4 data-i18n="s1_t">Создай привычку</h4><p data-i18n="s1_p">Выбери дни недели, цель и напоминание за минуту.</p></div>
-      <div class="step reveal"><div class="sn">02</div><h4 data-i18n="s2_t">Пригласи партнёра</h4><p data-i18n="s2_p">Отправь ссылку или покажи QR-код — и вы в одном пространстве.</p></div>
-      <div class="step reveal"><div class="sn">03</div><h4 data-i18n="s3_t">Двигайтесь вместе</h4><p data-i18n="s3_p">Отмечайте выполнение, поддерживайте друг друга и растите серию.</p></div>
+    <div class="steps" data-stagger>
+      <div class="step"><div class="sn">1</div><h4 data-i18n="s1_t">Создай привычку</h4><p data-i18n="s1_p">Выбери дни недели, цель и напоминание за минуту.</p></div>
+      <div class="step"><div class="sn">2</div><h4 data-i18n="s2_t">Пригласи партнёра</h4><p data-i18n="s2_p">Отправь ссылку или покажи QR-код — и вы в одном пространстве.</p></div>
+      <div class="step"><div class="sn">3</div><h4 data-i18n="s3_t">Двигайтесь вместе</h4><p data-i18n="s3_p">Отмечайте выполнение, поддерживайте друг друга и растите серию.</p></div>
     </div>
   </div>
 </section>
@@ -355,7 +399,7 @@ footer{border-top:1px solid var(--border);padding:56px 0 40px;margin-top:40px}
 <!-- CTA -->
 <section id="download">
   <div class="wrap">
-    <div class="cta-band reveal">
+    <div class="cta-band reveal scale">
       <div>
         <h2 data-i18n="cta_title">Начни прямо сейчас</h2>
         <p data-i18n="cta_p">Регистрация за минуту. Вход через Google или email. Или попробуй в гостевом режиме без регистрации.</p>
@@ -364,7 +408,7 @@ footer{border-top:1px solid var(--border);padding:56px 0 40px;margin-top:40px}
           <a href="app/" class="btn btn-ghost btn-lg" data-i18n="cta_b2">Скачать для Android</a>
         </div>
       </div>
-      <div class="cta-img"><img src="img/phone-auth.png" alt="Sign up" /></div>
+      <div class="cta-img"><div class="device"><div class="screen"><img src="img/phone-auth.png" alt="Sign up"/><span class="glare"></span></div></div></div>
     </div>
   </div>
 </section>
@@ -376,12 +420,12 @@ footer{border-top:1px solid var(--border);padding:56px 0 40px;margin-top:40px}
       <div class="eyebrow">FAQ</div>
       <h2 data-i18n="faq_title">Частые вопросы</h2>
     </div>
-    <div class="faq">
-      <div class="qa reveal"><button><span data-i18n="q1">Это бесплатно?</span><span class="ico">+</span></button><div class="ans"><p data-i18n="a1">Да. Основные функции бесплатны, есть гостевой режим без регистрации.</p></div></div>
-      <div class="qa reveal"><button><span data-i18n="q2">Как пригласить партнёра?</span><span class="ico">+</span></button><div class="ans"><p data-i18n="a2">Создайте пространство и поделитесь ссылкой или QR-кодом. Партнёр присоединится в один тап.</p></div></div>
-      <div class="qa reveal"><button><span data-i18n="q3">Работает ли в браузере?</span><span class="ico">+</span></button><div class="ans"><p data-i18n="a3">Да, веб-версия работает прямо в браузере. Также доступно приложение для Android.</p></div></div>
-      <div class="qa reveal"><button><span data-i18n="q4">Что с моими данными?</span><span class="ico">+</span></button><div class="ans"><p data-i18n="a4">Данные хранятся в защищённом облаке и не продаются третьим лицам. Вход можно защитить биометрией.</p></div></div>
-      <div class="qa reveal"><button><span data-i18n="q5">Какие языки поддерживаются?</span><span class="ico">+</span></button><div class="ans"><p data-i18n="a5">Русский, английский, украинский, белорусский и казахский. Тема — тёмная и светлая.</p></div></div>
+    <div class="faq" data-stagger>
+      <div class="qa"><button><span data-i18n="q1">Это бесплатно?</span><span class="ico">+</span></button><div class="ans"><p data-i18n="a1">Да. Основные функции бесплатны, есть гостевой режим без регистрации.</p></div></div>
+      <div class="qa"><button><span data-i18n="q2">Как пригласить партнёра?</span><span class="ico">+</span></button><div class="ans"><p data-i18n="a2">Создайте пространство и поделитесь ссылкой или QR-кодом. Партнёр присоединится в один тап.</p></div></div>
+      <div class="qa"><button><span data-i18n="q3">Работает ли в браузере?</span><span class="ico">+</span></button><div class="ans"><p data-i18n="a3">Да, веб-версия работает прямо в браузере. Также доступно приложение для Android.</p></div></div>
+      <div class="qa"><button><span data-i18n="q4">Что с моими данными?</span><span class="ico">+</span></button><div class="ans"><p data-i18n="a4">Данные хранятся в защищённом облаке и не продаются третьим лицам. Вход можно защитить биометрией.</p></div></div>
+      <div class="qa"><button><span data-i18n="q5">Какие языки поддерживаются?</span><span class="ico">+</span></button><div class="ans"><p data-i18n="a5">Русский, английский, украинский, белорусский и казахский. Тема — тёмная и светлая.</p></div></div>
     </div>
   </div>
 </section>
@@ -392,7 +436,7 @@ footer{border-top:1px solid var(--border);padding:56px 0 40px;margin-top:40px}
     <div class="foot-grid">
       <div>
         <a href="#" class="logo"><img src="img/icon.png" alt=""/>PathTogether</a>
-        <p class="muted" style="margin-top:14px;max-width:280px;font-size:14.5px" data-i18n="foot_tag">Совместный трекер привычек для тех, кто растёт вместе.</p>
+        <p style="color:var(--text2);margin-top:14px;max-width:280px;font-size:14.5px" data-i18n="foot_tag">Совместный трекер привычек для тех, кто растёт вместе.</p>
       </div>
       <div class="foot-links">
         <div class="foot-col">
@@ -416,19 +460,22 @@ footer{border-top:1px solid var(--border);padding:56px 0 40px;margin-top:40px}
 </footer>
 
 <script>
-/* ---------- check icons ---------- */
+/* check icons */
 document.querySelectorAll('[data-check]').forEach(li=>{
   li.insertAdjacentHTML('afterbegin',
     '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>');
 });
 
-/* ---------- i18n ---------- */
+/* duplicate marquee for seamless loop */
+(()=>{const t=document.getElementById('track');t.innerHTML+=t.innerHTML;})();
+
+/* i18n */
 const I18N={en:{
  nav_features:"Features",nav_how:"How it works",nav_faq:"FAQ",nav_signin:"Sign in",nav_open:"Open app",
- hero_badge:"Shared habit tracker",hero_title:'Build habits <span class="accent">together</span>',
+ hero_badge:"Shared habit tracker",
  hero_lead:"Build good habits with a partner, friend or team. See each other's progress in real time — and never let down the ones beside you.",
  hero_cta1:"Open in browser",hero_cta2:"Download for Android",hero_note:"Free · Guest mode, no sign-up required",
- proof_lang:"languages",proof_ach:"achievements",proof_theme:"Dark & light theme",proof_bio:"Biometric unlock",proof_realtime:"Real-time progress",
+ proof_lang:"languages",proof_ach:"achievements",proof_theme:"Dark & light theme",proof_bio:"Biometric unlock",proof_realtime:"Real-time progress",proof_widget:"Home-screen widget",proof_qr:"Invite by QR",
  feat_eyebrow:"Features",feat_title:"Everything to stay on track together",feat_sub:"Not just a tracker — real support between close people.",
  f1_t:"Move as a pair",f1_p:"Create a pair or group and invite a partner via link or QR code. You instantly see what they did today.",
  f1_l1:"Shared space for couples and teams",f1_l2:"Streaks, shared goals and days together",f1_l3:"Push when your partner completes a habit",
@@ -458,65 +505,92 @@ const I18N={en:{
  foot_product:"Product",foot_legal:"Legal",foot_privacy:"Privacy",foot_terms:"Terms",
  foot_made:"Made with care for the ones beside you"
 }};
+const H1={ru:'Стройте привычки <span class="shine">вместе</span>',en:'Build habits <span class="shine">together</span>'};
 let lang='ru';
-const RU={}; // ru defaults live in the HTML
 function setLang(l){
-  lang=l;
-  document.documentElement.lang=l;
+  lang=l;document.documentElement.lang=l;
   document.getElementById('langBtn').textContent=l==='ru'?'RU':'EN';
+  document.querySelector('h1').innerHTML=H1[l];
   document.querySelectorAll('[data-i18n]').forEach(el=>{
     const k=el.getAttribute('data-i18n');
-    if(l==='en'){
-      if(!el.dataset.ruCache)el.dataset.ruCache=el.innerHTML;
-      if(I18N.en[k]!=null)el.innerHTML=I18N.en[k];
-    }else{
-      if(el.dataset.ruCache!=null)el.innerHTML=el.dataset.ruCache;
-    }
+    if(l==='en'){if(!el.dataset.ruCache)el.dataset.ruCache=el.innerHTML;if(I18N.en[k]!=null)el.innerHTML=I18N.en[k];}
+    else if(el.dataset.ruCache!=null)el.innerHTML=el.dataset.ruCache;
   });
   try{localStorage.setItem('pt_lang',l)}catch(e){}
 }
 document.getElementById('langBtn').onclick=()=>setLang(lang==='ru'?'en':'ru');
 
-/* ---------- theme ---------- */
-function setTheme(t){
-  document.documentElement.setAttribute('data-theme',t);
-  document.getElementById('themeBtn').textContent=t==='dark'?'🌙':'☀️';
-  try{localStorage.setItem('pt_theme',t)}catch(e){}
-}
-document.getElementById('themeBtn').onclick=()=>{
-  setTheme(document.documentElement.getAttribute('data-theme')==='dark'?'light':'dark');
-};
+/* theme */
+function setTheme(t){document.documentElement.setAttribute('data-theme',t);
+  document.getElementById('themeBtn').textContent=t==='dark'?'🌙':'☀️';try{localStorage.setItem('pt_theme',t)}catch(e){}}
+document.getElementById('themeBtn').onclick=()=>setTheme(document.documentElement.getAttribute('data-theme')==='dark'?'light':'dark');
+try{const st=localStorage.getItem('pt_theme');if(st)setTheme(st);const sl=localStorage.getItem('pt_lang');if(sl==='en')setLang('en');}catch(e){}
 
-/* ---------- restore prefs ---------- */
-const qp=new URLSearchParams(location.search);
-try{
-  const st=qp.get('theme')||localStorage.getItem('pt_theme');if(st)setTheme(st);
-  const sl=qp.get('lang')||localStorage.getItem('pt_lang');if(sl==='en')setLang('en');
-}catch(e){}
+/* nav + scroll progress */
+const nav=document.getElementById('nav'),pr=document.getElementById('progress');
+addEventListener('scroll',()=>{
+  nav.classList.toggle('scrolled',scrollY>10);
+  const h=document.documentElement.scrollHeight-innerHeight;
+  pr.style.width=(h>0?scrollY/h*100:0)+'%';
+},{passive:true});
 
-/* ---------- nav scroll ---------- */
-const nav=document.getElementById('nav');
-addEventListener('scroll',()=>nav.classList.toggle('scrolled',scrollY>10));
-
-/* ---------- mobile menu ---------- */
+/* mobile menu */
 const mm=document.getElementById('mobileMenu');
 document.getElementById('hamb').onclick=()=>mm.classList.toggle('open');
 mm.querySelectorAll('a').forEach(a=>a.onclick=()=>mm.classList.remove('open'));
 
-/* ---------- FAQ ---------- */
+/* FAQ */
 document.querySelectorAll('.qa button').forEach(b=>{
-  b.onclick=()=>{
-    const qa=b.parentElement,ans=qa.querySelector('.ans');
-    const open=qa.classList.toggle('open');
-    ans.style.maxHeight=open?ans.scrollHeight+'px':0;
-  };
+  b.onclick=()=>{const qa=b.parentElement,ans=qa.querySelector('.ans');
+    const open=qa.classList.toggle('open');ans.style.maxHeight=open?ans.scrollHeight+'px':0;};
 });
 
-/* ---------- reveal on scroll ---------- */
+/* reveal + stagger */
 const io=new IntersectionObserver(es=>{
-  es.forEach(e=>{if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target);}});
-},{threshold:.12});
-document.querySelectorAll('.reveal').forEach(el=>io.observe(el));
+  es.forEach(e=>{
+    if(!e.isIntersecting)return;
+    e.target.classList.add('in');
+    if(e.target.hasAttribute('data-stagger')){
+      [...e.target.children].forEach((c,i)=>c.style.transitionDelay=(i*70)+'ms');
+    }
+    io.unobserve(e.target);
+  });
+},{threshold:.14});
+document.querySelectorAll('.reveal,[data-stagger]').forEach(el=>io.observe(el));
+
+/* count-up numbers in marquee pills */
+const countIO=new IntersectionObserver(es=>{
+  es.forEach(e=>{if(!e.isIntersecting)return;const el=e.target;const m=el.textContent.match(/(\d+)(\+?)/);
+    if(m){const end=+m[1],suf=m[2];let s=null;const dur=900;
+      const step=t=>{s=s||t;const p=Math.min((t-s)/dur,1);el.firstChild.textContent=Math.round(p*end);
+        if(p<1)requestAnimationFrame(step);else el.firstChild.textContent=end+suf;};
+      el.firstChild.textContent='0';requestAnimationFrame(step);}
+    countIO.unobserve(el);});
+},{threshold:1});
+document.querySelectorAll('.proof .pill b').forEach(b=>countIO.observe(b));
+
+/* hero parallax (mouse) */
+const stage=document.getElementById('stage');
+let mx=0,my=0,cx=0,cy=0,raf=null;
+addEventListener('mousemove',e=>{mx=(e.clientX/innerWidth-.5);my=(e.clientY/innerHeight-.5);if(!raf)raf=requestAnimationFrame(loop);},{passive:true});
+function loop(){cx+=(mx-cx)*.06;cy+=(my-cy)*.06;
+  stage.querySelectorAll('[data-depth]').forEach(d=>{const k=+d.dataset.depth;
+    d.style.setProperty('--tx',(cx*k)+'px');d.style.setProperty('--ty',(cy*k*.6)+'px');});
+  raf=(Math.abs(mx-cx)>.001||Math.abs(my-cy)>.001)?requestAnimationFrame(loop):null;}
+loop();
+
+/* card spotlight follow */
+document.querySelectorAll('.card').forEach(c=>{
+  c.addEventListener('pointermove',e=>{const r=c.getBoundingClientRect();
+    c.style.setProperty('--mx',(e.clientX-r.left)+'px');c.style.setProperty('--my',(e.clientY-r.top)+'px');});
+});
+
+/* feature device subtle scroll tilt */
+const tilts=[...document.querySelectorAll('[data-tilt]')];
+addEventListener('scroll',()=>{const vh=innerHeight;
+  tilts.forEach(t=>{const r=t.getBoundingClientRect();const c=(r.top+r.height/2);const d=(c-vh/2)/vh;
+    t.style.transform='perspective(1000px) rotateX('+(d*4)+'deg) translateY('+(d*-14)+'px)';});
+},{passive:true});
 
 document.getElementById('year').textContent=new Date().getFullYear();
 </script>
