@@ -73,13 +73,13 @@ img{max-width:100%;display:block}
 .btn-lg{padding:16px 28px;font-size:16px}
 
 /* ---------- device frame ---------- */
-.device{position:relative;width:var(--dw,280px);aspect-ratio:404/884;border-radius:42px;
+.device{position:relative;width:var(--dw,280px);aspect-ratio:396/874;border-radius:42px;
   background:var(--bezel);padding:9px;
   box-shadow:0 34px 70px rgba(0,0,0,.55),0 6px 18px rgba(0,0,0,.4),inset 0 1px 1px rgba(255,255,255,.08)}
 .device::before{content:"";position:absolute;top:8px;left:50%;transform:translateX(-50%);
   width:34%;height:5px;border-radius:3px;background:rgba(255,255,255,.07);z-index:3}
 .device .screen{width:100%;height:100%;border-radius:33px;overflow:hidden;background:#0a0a0a;position:relative}
-.device .screen img{width:100%;height:100%;object-fit:cover;object-position:top center;transform:scale(1.045)}
+.device .screen img{width:100%;height:100%;object-fit:cover;object-position:top center}
 .device .glare{position:absolute;inset:0;border-radius:33px;pointer-events:none;
   background:linear-gradient(135deg,rgba(255,255,255,.10),transparent 35%);mix-blend-mode:screen}
 
@@ -120,12 +120,12 @@ h1{font-size:clamp(40px,7vw,76px);font-weight:900;letter-spacing:-.035em;line-he
 .hero-note{margin-top:18px;font-size:13px;color:var(--text3)}
 
 /* hero stage with layered devices */
-.stage{position:relative;height:600px;margin-top:24px}
+.stage{position:relative;height:640px;margin-top:24px}
 .dev-pos{position:absolute;left:50%;transition:transform .3s var(--ease);
   transform:translate(calc(-50% + var(--tx,0px)),var(--ty,0px)) rotate(var(--rot,0deg))}
-.p-main{--rot:0deg;z-index:3;top:6px}
-.p-left{--rot:-9deg;z-index:2;margin-left:-330px;top:84px;opacity:.92}
-.p-right{--rot:9deg;z-index:2;margin-left:330px;top:84px;opacity:.92}
+.p-main{--rot:0deg;z-index:3;top:10px}
+.p-left{--rot:-8deg;z-index:2;margin-left:-280px;top:96px;opacity:.92}
+.p-right{--rot:8deg;z-index:2;margin-left:280px;top:96px;opacity:.92}
 .p-left .device,.p-right .device{box-shadow:0 30px 60px rgba(0,0,0,.6)}
 .floaty{animation:float 6s ease-in-out infinite}
 .p-left .floaty{animation-duration:7s;animation-delay:.4s}
@@ -297,9 +297,9 @@ footer{border-top:1px solid var(--border);padding:56px 0 40px;margin-top:40px}
     </div>
     <div class="hero-note reveal" style="transition-delay:.24s" data-i18n="hero_note">Бесплатно · Гостевой режим без регистрации</div>
     <div class="stage" id="stage">
-      <div class="dev-pos p-left" data-depth="18"><div class="device floaty" style="--dw:235px"><div class="screen"><img src="img/phone-habits.png" alt=""/><span class="glare"></span></div></div></div>
-      <div class="dev-pos p-right" data-depth="18"><div class="device floaty" style="--dw:235px"><div class="screen"><img src="img/phone-mood.png" alt=""/><span class="glare"></span></div></div></div>
-      <div class="dev-pos p-main" data-depth="34"><div class="device floaty" style="--dw:312px"><div class="screen"><img src="img/phone-today.png" alt="PathTogether — сегодня"/><span class="glare"></span></div></div></div>
+      <div class="dev-pos p-left" data-depth="12"><div class="device floaty" style="--dw:205px"><div class="screen"><img src="img/phone-habits.png" alt=""/><span class="glare"></span></div></div></div>
+      <div class="dev-pos p-right" data-depth="12"><div class="device floaty" style="--dw:205px"><div class="screen"><img src="img/phone-mood.png" alt=""/><span class="glare"></span></div></div></div>
+      <div class="dev-pos p-main" data-depth="22"><div class="device floaty" style="--dw:280px"><div class="screen"><img src="img/phone-today.png" alt="PathTogether — сегодня"/><span class="glare"></span></div></div></div>
     </div>
   </div>
 </section>
