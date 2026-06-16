@@ -11,6 +11,12 @@
       "resizeMode": "cover",
       "backgroundColor": "#0a0a0a"
     },
+    "web": {
+      "bundler": "metro",
+      "output": "single",
+      "favicon": "./assets/favicon.png",
+      "backgroundColor": "#0a0a0a"
+    },
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.attach4.pathtogether",
@@ -119,7 +125,27 @@
         }
       ],
       "@react-native-google-signin/google-signin",
-      "./plugins/withRuStore"
+      "./plugins/withRuStore",
+      "./plugins/withWidgetPin",
+      [
+        "react-native-android-widget",
+        {
+          "widgets": [
+            {
+              "name": "Habits",
+              "label": "PathTogether",
+              "minWidth": "180dp",
+              "minHeight": "110dp",
+              "targetCellWidth": 4,
+              "targetCellHeight": 2,
+              "description": "Привычки на сегодня",
+              "previewImage": "./assets/widget-preview.png",
+              "updatePeriodMillis": 1800000,
+              "resizeMode": "horizontal|vertical"
+            }
+          ]
+        }
+      ]
     ],
     "extra": {
       "eas": {
@@ -131,7 +157,9 @@
     "description": "Отслеживай привычки вместе с партнёром",
     "sdkVersion": "54.0.0",
     "newArchEnabled": false,
-    "experiments": {},
+    "experiments": {
+      "baseUrl": "/app"
+    },
     "runtimeVersion": {
       "policy": "appVersion"
     },

@@ -26,6 +26,8 @@ import {
   sendEmailVerification,
   GoogleAuthProvider,
   signInWithCredential,
+  signInWithPopup,
+  getAdditionalUserInfo,
   updateProfile,
 } from 'firebase/auth';
 import { auth } from '../firebase';
@@ -103,6 +105,25 @@ export default function AuthScreen({ tk, lang = 'ru', onSuccess, onGuest }: Prop
   // GoogleSignin настраивается при первом вызове googleSignIn
 
   const googleSignIn = async () => {
+    // Web: нативного модуля нет — используем Firebase popup
+    if (Platform.OS === 'web') {
+      try {
+        setLoading(true);
+        const provider = new GoogleAuthProvider();
+        const userCred = await signInWithPopup(auth, provider);
+        const user = userCred.user;
+        const isNewUser = getAdditionalUserInfo(userCred)?.isNewUser ?? false;
+        onSuccess(user.uid, user.displayName || user.email?.split('@')[0] || 'User', isNewUser);
+      } catch (e: any) {
+        if (e?.code !== 'auth/popup-closed-by-user' && e?.code !== 'auth/cancelled-popup-request') {
+          console.warn('[Google SignIn web]', e);
+          Alert.alert('Ошибка', e?.message || 'Google Sign In failed');
+        }
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
     const { GoogleSignin, statusCodes } = getGoogleSignin();
     if (!GoogleSignin) {
       Alert.alert('Ошибка', 'Google Sign In недоступен в этой версии приложения');
