@@ -44,6 +44,7 @@ interface Props {
   lang?: string;
   onSuccess: (uid: string, name: string, isNew: boolean) => void;
   onGuest?: () => void;
+  desktop?: boolean;
 }
 
 const Field = ({ label, value, onChange, placeholder, secure, tk }: {
@@ -89,7 +90,7 @@ const Field = ({ label, value, onChange, placeholder, secure, tk }: {
   );
 };
 
-export default function AuthScreen({ tk, lang = 'ru', onSuccess, onGuest }: Props) {
+export default function AuthScreen({ tk, lang = 'ru', onSuccess, onGuest, desktop }: Props) {
   const [tab,      setTab]      = useState<'login'|'reg'>('login');
   const [name,     setName]     = useState('');
   const [email,    setEmail]    = useState('');
@@ -214,9 +215,16 @@ export default function AuthScreen({ tk, lang = 'ru', onSuccess, onGuest }: Prop
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
         <ScrollView
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ padding: 24, paddingBottom: 60 }}
+          contentContainerStyle={ desktop
+            ? { padding: 32, flexGrow: 1, justifyContent: 'center' }
+            : { padding: 24, paddingBottom: 60 } }
           keyboardShouldPersistTaps="handled">
 
+         <View style={ desktop
+           ? { width: '100%', maxWidth: 400, alignSelf: 'center',
+               backgroundColor: tk.bg2, borderWidth: 1, borderColor: tk.border,
+               borderRadius: 20, padding: 32 }
+           : { width: '100%' } }>
           {/* Brand */}
           <View style={{ marginBottom: 32 }}>
             <Text style={{ fontSize: 9, color: tk.text3, letterSpacing: 2.5, textTransform: 'uppercase', marginBottom: 12 }}>PathTogether</Text>
@@ -348,7 +356,7 @@ export default function AuthScreen({ tk, lang = 'ru', onSuccess, onGuest }: Prop
               </Text>
             </TouchableOpacity>
           )}
-
+         </View>
         </ScrollView>
       </KeyboardAvoidingView>
     </View>

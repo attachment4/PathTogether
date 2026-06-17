@@ -192,29 +192,31 @@ export default function CalendarScreen({ myId, lang, tk, habits, members, logs, 
         {viewMode === 'month' ? (
           <>
             {/* Навигация по месяцам */}
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-              <TouchableOpacity onPress={prevM} style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: tk.bg2, borderWidth: 1, borderColor: tk.border, alignItems: 'center', justifyContent: 'center' }}>
-                <Text style={{ color: tk.text, fontSize: 18, lineHeight: 22 }}>‹</Text>
-              </TouchableOpacity>
-              <Text style={{ fontSize: 16, fontWeight: '700', color: tk.text }}>
-                {(isEn ? MONTHS_EN : MONTHS_RU)[month]} {year}
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18, paddingHorizontal: 2 }}>
+              <Text style={{ fontSize: 24, fontWeight: '800', color: tk.text, letterSpacing: -0.6 }}>
+                {(isEn ? MONTHS_EN : MONTHS_RU)[month]} <Text style={{ color: tk.text3, fontWeight: '600' }}>{year}</Text>
               </Text>
-              <TouchableOpacity onPress={nextM} style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: tk.bg2, borderWidth: 1, borderColor: tk.border, alignItems: 'center', justifyContent: 'center' }}>
-                <Text style={{ color: tk.text, fontSize: 18, lineHeight: 22 }}>›</Text>
-              </TouchableOpacity>
+              <View style={{ flexDirection: 'row', gap: 6 }}>
+                <TouchableOpacity onPress={prevM} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: tk.bg2, alignItems: 'center', justifyContent: 'center' }}>
+                  <Text style={{ color: tk.accent, fontSize: 20, lineHeight: 22, fontWeight: '600' }}>‹</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={nextM} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: tk.bg2, alignItems: 'center', justifyContent: 'center' }}>
+                  <Text style={{ color: tk.accent, fontSize: 20, lineHeight: 22, fontWeight: '600' }}>›</Text>
+                </TouchableOpacity>
+              </View>
             </View>
 
             {/* Дни недели */}
-            <View style={{ flexDirection: 'row', marginBottom: 8 }}>
+            <View style={{ flexDirection: 'row', marginBottom: 6 }}>
               {(isEn ? WD_EN : WD_RU).map(d => (
-                <Text key={d} style={{ flex: 1, textAlign: 'center', fontSize: 11, color: tk.text3 }}>{d}</Text>
+                <Text key={d} style={{ flex: 1, textAlign: 'center', fontSize: 11, fontWeight: '600', letterSpacing: 0.5, textTransform: 'uppercase', color: tk.text3 }}>{d}</Text>
               ))}
             </View>
 
             {/* Сетка дней */}
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginBottom: 20 }}>
               {Array.from({ length: firstDow }, (_, i) => (
-                <View key={`e${i}`} style={{ width: '14.28%', aspectRatio: 1 }} />
+                <View key={`e${i}`} style={{ width: '14.28%', height: 54 }} />
               ))}
               {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(d => {
                 const isToday = d === now.getDate() && month === now.getMonth() && year === now.getFullYear();
@@ -223,35 +225,29 @@ export default function CalendarScreen({ myId, lang, tk, habits, members, logs, 
                 const dot = dotInfo?.state ?? null;
                 const dotColors = dotInfo?.colors ?? [];
                 const editable = isEditable(d);
+                const dim = isPast(d) && !editable;
                 return (
-                  <TouchableOpacity key={d} onPress={() => setSelDay(d === selDay ? null : d)}
-                    style={{ width: '14.28%', aspectRatio: 1, alignItems: 'center', justifyContent: 'center', gap: 2 }}>
+                  <TouchableOpacity key={d} onPress={() => setSelDay(d === selDay ? null : d)} activeOpacity={0.7}
+                    style={{ width: '14.28%', height: 54, alignItems: 'center', justifyContent: 'flex-start', paddingTop: 2 }}>
                     <View style={{
-                      width: 30, height: 30, borderRadius: 10,
-                      backgroundColor:
-                        isSel ? tk.text :
-                        dot === 'full' ? tk.text :
-                        'transparent',
-                      borderWidth: (isToday && !isSel) ? 1.5 : 0,
-                      borderColor: tk.text2,
+                      width: 38, height: 38, borderRadius: 19,
                       alignItems: 'center', justifyContent: 'center',
-                      opacity: isPast(d) && !editable ? 0.45 : 1,
+                      backgroundColor: isSel ? tk.accent : (isToday ? tk.accent + '22' : 'transparent'),
                     }}>
                       <Text style={{
-                        fontSize: 13,
-                        fontWeight: (isToday || dot === 'full') ? '700' : '400',
-                        color: (isSel || dot === 'full') ? tk.bg : tk.text,
+                        fontSize: 16,
+                        fontWeight: (isToday || isSel) ? '700' : '500',
+                        color: isSel ? '#fff' : isToday ? tk.accent : tk.text,
+                        opacity: dim ? 0.4 : 1,
                       }}>{d}</Text>
                     </View>
-                    {dot === 'part' && (
-                      <View style={{ flexDirection: 'row', gap: 1.5, alignItems: 'center' }}>
-                        {dotColors.slice(0,3).map((c, i) => (
-                          <View key={i} style={{ width: 4, height: 4, borderRadius: 2,
-                            backgroundColor: c && c !== '#f5f5f5' ? c : tk.text3 }} />
-                        ))}
-                      </View>
-                    )}
-                    {(!dot || dot === 'none') && <View style={{ width: 5, height: 5 }} />}
+                    <View style={{ flexDirection: 'row', gap: 3, marginTop: 4, height: 6, alignItems: 'center' }}>
+                      {dot === 'full' && <View style={{ width: 5, height: 5, borderRadius: 2.5, backgroundColor: tk.accent }} />}
+                      {dot === 'part' && dotColors.slice(0, 3).map((c, i) => (
+                        <View key={i} style={{ width: 5, height: 5, borderRadius: 2.5,
+                          backgroundColor: c && c !== '#f5f5f5' ? c : tk.text3 }} />
+                      ))}
+                    </View>
                   </TouchableOpacity>
                 );
               })}

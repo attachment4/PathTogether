@@ -1754,7 +1754,7 @@ export default function App() {
 
   if (screen==='auth') return (
     <View style={{flex:1,paddingTop:TOP,backgroundColor:tk.bg}}>
-      <AuthScreen tk={tk} lang={lang} onGuest={handleGuest} onSuccess={async(uid,name,isNew)=>{
+      <AuthScreen tk={tk} lang={lang} desktop={isDesktop} onGuest={handleGuest} onSuccess={async(uid,name,isNew)=>{
         isRegistering.current = true;
         try {
           setupNotificationChannel().catch(()=>{});
@@ -2629,8 +2629,9 @@ export default function App() {
     const own=h.ownerId===myId;
     const myStreak=calcStreak(h.id,myId,logs,h.days);
     return (
-      <View style={{flex:1,paddingTop:TOP,backgroundColor:tk.bg}}>
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{padding:20,paddingBottom:60}}>
+      <View style={{flex:1,paddingTop:isDesktop?0:TOP,paddingLeft:isDesktop?SIDEBAR_W:0,backgroundColor:tk.bg}}>
+        {isDesktop && <SideNav screen={screen} onPress={s=>s==='add'?setScreen('addHabit'):animateScreenChange(s as Screen)} tk={tk} lang={lang} theme={theme} guest={isGuest()} onAuth={()=>setScreen('auth')}/>}
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{padding:isDesktop?32:20,paddingBottom:60,...(isDesktop?{maxWidth:780,width:'100%',alignSelf:'center'}:{})}}>
           <View style={{flexDirection:'row',alignItems:'center',gap:12,marginBottom:24}}>
             <TouchableOpacity onPress={()=>{setDetailH(null);setDetailNotes({});animateScreenChange('today','back');}}
               style={{width:36,height:36,borderRadius:10,backgroundColor:tk.bg2,borderWidth:1,borderColor:tk.border,alignItems:'center',justifyContent:'center'}}>
