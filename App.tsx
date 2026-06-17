@@ -3,7 +3,7 @@ import {
   View, Text, TouchableOpacity, TouchableWithoutFeedback, ScrollView, TextInput,
   KeyboardAvoidingView, Platform, StatusBar, Alert,
   ActivityIndicator, Share, PanResponder, Animated, BackHandler, Modal,
-  Dimensions, useColorScheme, Keyboard, Image,
+  Dimensions, useColorScheme, Keyboard, Image, useWindowDimensions,
 } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import * as Linking from 'expo-linking';
@@ -45,6 +45,7 @@ import PaywallScreen     from './src/screens/PaywallScreen';
 import {
   Subscription, loadSubscription, canInvite, canAddMember, PLAN_LIMITS, saveRegisteredAt,
 } from './src/subscription';
+import { updateWidgetData } from './src/widget/widgetTask';
 
 
 
@@ -187,9 +188,60 @@ function NavIcon({name,active,tk}:{name:string;active:boolean;tk:ReturnType<type
   return null;
 }
 
-//  App 
+// ── Desktop ──────────────────────────────────────────────────────────────────
+const SIDEBAR_W = 252;
+function SideNav({screen,onPress,tk,lang,theme,guest,onAuth,friendsBadge}:{screen:Screen;onPress:(s:Screen)=>void;tk:ReturnType<typeof getTK>;lang:string;theme:'dark'|'light';guest?:boolean;onAuth?:()=>void;friendsBadge?:number}) {
+  const active = (['today','friends','calendar','profile'] as string[]).includes(screen) ? screen : 'today';
+  const lbl = (item:any) => lang==='en'?item.en:lang==='uk'?item.uk:lang==='be'?item.be:lang==='kk'?item.kk:item.ru;
+  const en = lang==='en';
+  return (
+    <View style={{position:'absolute',left:0,top:0,bottom:0,width:SIDEBAR_W,
+      backgroundColor: theme==='dark' ? '#0c0c0c' : '#ffffff',
+      borderRightWidth:1, borderRightColor: tk.border,
+      paddingVertical:22, paddingHorizontal:14}}>
+      {/* brand */}
+      <View style={{flexDirection:'row',alignItems:'center',gap:11,paddingHorizontal:8,marginBottom:26}}>
+        <View style={{width:32,height:32,borderRadius:9,backgroundColor:tk.accent,alignItems:'center',justifyContent:'center'}}>
+          <Text style={{color:'#fff',fontSize:17,fontWeight:'900'}}>P</Text>
+        </View>
+        <Text style={{fontSize:17,fontWeight:'800',color:tk.text,letterSpacing:-0.3}}>PathTogether</Text>
+      </View>
+      {/* new habit */}
+      <TouchableOpacity onPress={()=>onPress('add')} activeOpacity={0.85}
+        style={{flexDirection:'row',alignItems:'center',gap:10,backgroundColor:tk.text,
+          borderRadius:12,paddingVertical:12,paddingHorizontal:14,marginBottom:18}}>
+        <Text style={{color:tk.bg,fontSize:19,lineHeight:20,fontWeight:'500'}}>+</Text>
+        <Text style={{color:tk.bg,fontSize:14,fontWeight:'700'}}>{en?'New habit':'Новая привычка'}</Text>
+      </TouchableOpacity>
+      {/* nav */}
+      {NAV.filter(i=>i.s!=='add').map(item=>{
+        const isA = active===item.s;
+        const badge = item.s==='friends' && friendsBadge && friendsBadge>0 ? friendsBadge : 0;
+        return (
+          <TouchableOpacity key={item.s} onPress={()=>onPress(item.s as Screen)} activeOpacity={0.7}
+            style={{flexDirection:'row',alignItems:'center',gap:13,paddingVertical:11,paddingHorizontal:12,
+              borderRadius:10,marginBottom:3,
+              backgroundColor: isA ? (theme==='dark'?'rgba(255,255,255,0.07)':'rgba(0,0,0,0.05)') : 'transparent'}}>
+            <View style={{width:22,alignItems:'center'}}><NavIcon name={item.s} active={isA} tk={tk}/></View>
+            <Text style={{fontSize:14.5,fontWeight:isA?'700':'500',color:isA?tk.text:tk.text2}}>{lbl(item)}</Text>
+            {badge>0 && <View style={{marginLeft:'auto',minWidth:18,height:18,borderRadius:9,backgroundColor:tk.accent,alignItems:'center',justifyContent:'center',paddingHorizontal:5}}><Text style={{color:'#fff',fontSize:11,fontWeight:'700'}}>{badge}</Text></View>}
+          </TouchableOpacity>
+        );
+      })}
+      <View style={{flex:1}}/>
+      {guest && (
+        <TouchableOpacity onPress={onAuth} activeOpacity={0.8}
+          style={{borderWidth:1,borderColor:tk.border,borderRadius:12,paddingVertical:11,alignItems:'center'}}>
+          <Text style={{fontSize:13.5,fontWeight:'700',color:tk.text}}>{en?'Sign in / Sign up':'Войти / Регистрация'}</Text>
+        </TouchableOpacity>
+      )}
+    </View>
+  );
+}
 
-//  Барабанный пикер времени 
+//  App
+
+//  Барабанный пикер времени
 //  Бесконечный барабанный столбик 
 function DrumColumn({ items, selected, onSelect, itemH, tk }: {
   items: string[]; selected: number; onSelect: (i: number) => void;
@@ -383,6 +435,9 @@ export default function App() {
   const [myName,      setMyName]      = useState('');
   const [space,       setSpace]       = useState<Space|null>(null);
   const [screen,      setScreen]      = useState<Screen>('auth');
+  // Десктоп-раскладка: web + широкий экран → боковое меню вместо нижнего бара
+  const winW = useWindowDimensions().width;
+  const isDesktop = Platform.OS === 'web' && winW >= 900;
   const [loading,     setLoading]     = useState(false);
   const [toast,       setToast]       = useState<{msg:string;ok:boolean}|null>(null);
   const [isOnline,    setIsOnline]    = useState(true);
@@ -1192,6 +1247,31 @@ export default function App() {
     } catch (e) { console.warn('[saveL]', e); }
   };
 
+  // ── Синхронизация данных нативного Android-виджета ──────────────────────────
+  // Пересобираем срез "привычки на сегодня" при любом изменении привычек/логов.
+  useEffect(() => {
+    if (!myId || myId === 'guest') return;
+    const dow = todayDow();
+    const date = todayS();
+    const habits = (space?.habits || [])
+      .filter((h:any) => h.days?.includes(dow))
+      .sort((a:any,b:any) => (a.order??0)-(b.order??0))
+      .map((h:any) => ({
+        id: h.id,
+        name: h.name,
+        color: h.color,
+        done: !!(space?.logs||{})[`${h.id}_${date}_${myId}`],
+      }));
+    const doneCount = habits.filter(h => h.done).length;
+    updateWidgetData({
+      habits,
+      doneCount,
+      totalCount: habits.length,
+      userName: myName || '',
+      updatedAt: Date.now(),
+    }).catch(()=>{});
+  }, [space?.habits, space?.logs, myId, myName]);
+
   const toggle = async (hid:string) => {
     const key=`${hid}_${todayS()}_${myId}`;
     const l={...(space?.logs||{})};
@@ -1864,6 +1944,18 @@ export default function App() {
       }}
       onPartnerNotifToggle={async(v)=>{setPartnerNotif(v);await Storage.set('partner_notif',v);}}
       onBack={()=>setScreen('profile')}
+      onAddWidget={async()=>{
+        const { pinHabitsWidget } = require('./src/widget/pinWidget');
+        const ok = await pinHabitsWidget();
+        if (!ok) {
+          Alert.alert(
+            isEn ? 'Add widget' : 'Добавить виджет',
+            isEn
+              ? 'Long-press the home screen → Widgets → PathTogether, then drag it out.'
+              : 'Зажмите палец на главном экране → Виджеты → PathTogether, затем перетащите на экран.'
+          );
+        }
+      }}
       onDeleteAccount={async()=>{ if(isGuest()){setMyId('');setMyName('');setScreen('auth');return;} const uid=myId;stopSubs();sessionEstablished.current=false;await auth.signOut();setSpace(null);setMyId('');setMyName('');setScreen('auth');}}/>
   );
 
@@ -1905,8 +1997,9 @@ export default function App() {
   );
 
   if (screen==='profile') return (
-    <View style={{flex:1,paddingTop:TOP,backgroundColor:tk.bg}}
-      {...tabSwipePan.panHandlers}>
+    <View style={{flex:1,paddingTop:isDesktop?0:TOP,paddingLeft:isDesktop?SIDEBAR_W:0,backgroundColor:tk.bg}}
+      {...(isDesktop ? {} : tabSwipePan.panHandlers)}>
+      {isDesktop && <SideNav screen={screen} onPress={s=>s==='add'?setScreen('addHabit'):animateScreenChange(s as Screen)} tk={tk} lang={lang} theme={theme} guest={isGuest()} onAuth={()=>setScreen('auth')}/>}
       <ProfileScreen myId={myId} myName={myName} lang={lang} tk={tk} theme={theme}
         subscription={subscription}
         habitCount={habits.length} friendCount={members.length>1?1:0}
@@ -1956,7 +2049,7 @@ export default function App() {
           backgroundColor: tk.bg, opacity: coverOpacity, zIndex: 999,
         }}/>
       )}
-      {TAB_SCREENS.includes(screen) && <BottomNav screen={screen} onPress={s=>s==='add'?setScreen('addHabit'):animateScreenChange(s as Screen)} tk={tk} lang={lang} theme={theme}
+      {!isDesktop && TAB_SCREENS.includes(screen) && <BottomNav screen={screen} onPress={s=>s==='add'?setScreen('addHabit'):animateScreenChange(s as Screen)} tk={tk} lang={lang} theme={theme}
       friendsBadge={members.length>1 ? members.filter(m=>m&&m.id!==myId).filter(m=>{
         const dow=todayDow();
         const todayH=(space?.habits||[]).filter(h=>h.days?.includes(dow));
@@ -3072,8 +3165,10 @@ export default function App() {
   };
 
   return (
-    <View style={{flex:1,paddingTop:TOP,backgroundColor:tk.bg}}
-      {...(TAB_SCREENS.includes(screen) ? tabSwipePan.panHandlers : {})}>
+    <View style={{flex:1,paddingTop:isDesktop?0:TOP,paddingLeft:isDesktop?SIDEBAR_W:0,backgroundColor:tk.bg}}
+      {...((!isDesktop && TAB_SCREENS.includes(screen)) ? tabSwipePan.panHandlers : {})}>
+      {isDesktop && <SideNav screen={screen} onPress={s=>s==='add'?setScreen('addHabit'):animateScreenChange(s as Screen)} tk={tk} lang={lang} theme={theme} guest={isGuest()} onAuth={()=>setScreen('auth')}
+        friendsBadge={members.length>1 ? members.filter(m=>m&&m.id!==myId).filter(m=>{const dow=todayDow();const todayH=(space?.habits||[]).filter(h=>h.days?.includes(dow));return todayH.some(h=>isLogged(h.id,m.id,logs));}).length : 0}/>}
       {isGuest() && (
         <View style={{ backgroundColor: tk.accent + '22', borderBottomWidth: 1, borderColor: tk.accent + '44',
           paddingVertical: 10, paddingHorizontal: 16, flexDirection: 'row',
@@ -3108,8 +3203,8 @@ export default function App() {
           </Text>
         </View>
       )}
-      <Animated.View style={{ flex: 1, opacity: screenOpacity, transform: [{ translateX: screenTranslateX }], backgroundColor: tk.bg }}>
-        {mainScreen}
+      <Animated.View style={{ flex: 1, opacity: screenOpacity, transform: [{ translateX: screenTranslateX }], backgroundColor: tk.bg, alignItems: isDesktop?'center':'stretch' }}>
+        {isDesktop ? <View style={{flex:1,width:'100%',maxWidth:1100,paddingTop:24}}>{mainScreen}</View> : mainScreen}
       </Animated.View>
       {/* Note Modal */}
       <Modal
@@ -3177,7 +3272,7 @@ export default function App() {
           backgroundColor: tk.bg, opacity: coverOpacity, zIndex: 999,
         }}/>
       )}
-      {TAB_SCREENS.includes(screen) && <BottomNav screen={screen} onPress={s=>s==='add'?setScreen('addHabit'):animateScreenChange(s as Screen)} tk={tk} lang={lang} theme={theme}
+      {!isDesktop && TAB_SCREENS.includes(screen) && <BottomNav screen={screen} onPress={s=>s==='add'?setScreen('addHabit'):animateScreenChange(s as Screen)} tk={tk} lang={lang} theme={theme}
       friendsBadge={members.length>1 ? members.filter(m=>m&&m.id!==myId).filter(m=>{
         const dow=todayDow();
         const todayH=(space?.habits||[]).filter(h=>h.days?.includes(dow));
