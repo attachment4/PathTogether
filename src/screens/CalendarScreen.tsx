@@ -59,19 +59,21 @@ interface Props {
   habits: Habit[]; members: Member[]; logs: Record<string,boolean>;
   spaceId?: string;
   photos?: any[];
+  initialDate?: Date | null;
   onToggleLog?: (hid: string, dateStr: string) => Promise<void>;
 }
 
 type ViewMode = 'month' | 'week';
 
-export default function CalendarScreen({ myId, lang, tk, habits, members, logs, spaceId, photos = [], onToggleLog }: Props) {
+export default function CalendarScreen({ myId, lang, tk, habits, members, logs, spaceId, photos = [], initialDate, onToggleLog }: Props) {
   const isEn = lang === 'en';
   const L = (ru: string, en: string, uk?: string, be?: string, kk?: string) =>
     lang==='en' ? en : lang==='uk' ? (uk||ru) : lang==='be' ? (be||ru) : lang==='kk' ? (kk||ru) : ru;
   const now = new Date();
-  const [month, setMonth] = useState(now.getMonth());
-  const [year, setYear]   = useState(now.getFullYear());
-  const [selDay, setSelDay] = useState<number | null>(now.getDate());
+  const init = initialDate instanceof Date && !isNaN(initialDate.getTime()) ? initialDate : now;
+  const [month, setMonth] = useState(init.getMonth());
+  const [year, setYear]   = useState(init.getFullYear());
+  const [selDay, setSelDay] = useState<number | null>(init.getDate());
   const [viewMode, setViewMode] = useState<ViewMode>('month');
   const [editingLog, setEditingLog] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string|null>(null);
@@ -86,6 +88,7 @@ export default function CalendarScreen({ myId, lang, tk, habits, members, logs, 
   const [spEvents, setSpEvents] = useState<CalEvent[]>([]);
   const [showAddEvent, setShowAddEvent] = useState(false);
   const [showEvTimePicker, setShowEvTimePicker] = useState(false);
+  const [habitsOpen, setHabitsOpen] = useState(false);
   const [evTitle, setEvTitle] = useState('');
   const [evTime, setEvTime] = useState('');
   const [evRemind, setEvRemind] = useState(true);
@@ -421,11 +424,15 @@ export default function CalendarScreen({ myId, lang, tk, habits, members, logs, 
         {/* Детали выбранного дня (месячный вид) */}
         {selDay !== null && selHabits.length > 0 && (
           <View style={{ backgroundColor: tk.bg2, borderWidth: 1, borderColor: tk.border, borderRadius: 14, padding: 14 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-              <Text style={{ fontSize: 13, fontWeight: '600', color: tk.text }}>
-                {selDay} {(isEn ? ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'] : ['янв','фев','мар','апр','май','июн','июл','авг','сен','окт','ноя','дек'])[month]}
-              </Text>
-              {isEditable(selDay) && (
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: habitsOpen ? 12 : 0 }}>
+              <TouchableOpacity onPress={() => setHabitsOpen(v => !v)} activeOpacity={0.7}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, paddingVertical: 2 }}>
+                <Text style={{ fontSize: 13, color: tk.text3, width: 12 }}>{habitsOpen ? '⌄' : '›'}</Text>
+                <Text style={{ fontSize: 13, fontWeight: '600', color: tk.text }}>
+                  {L('Привычки дня', 'Day habits')} · {selHabits.filter(h => h.myDone).length}/{selHabits.length}
+                </Text>
+              </TouchableOpacity>
+              {habitsOpen && isEditable(selDay) && (
                 <TouchableOpacity onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(()=>{}); setEditingLog(v => !v); }}
                   style={{ paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, backgroundColor: editingLog ? tk.text : tk.bg3, borderWidth: 1, borderColor: tk.border }}>
                   <Text style={{ fontSize: 11, color: editingLog ? tk.bg : tk.text2 }}>
@@ -434,17 +441,7 @@ export default function CalendarScreen({ myId, lang, tk, habits, members, logs, 
                 </TouchableOpacity>
               )}
             </View>
-            {selHabits.length === 0 && (
-              <View style={{ alignItems: 'center', padding: 24, gap: 8 }}>
-                <Text style={{ fontSize: 14, color: tk.text3 }}>
-                  {(lang === 'en' ? 'No habits scheduled' : 'Нет запланированных привычек')}
-                </Text>
-                <Text style={{ fontSize: 11, color: tk.text3, opacity: 0.6 }}>
-                  {(lang === 'en' ? 'Time to rest' : 'Время отдохнуть')}
-                </Text>
-              </View>
-            )}
-            {selHabits.map(h => {
+            {habitsOpen && selHabits.map(h => {
               const dateStr = ds(selDay!);
               const dayPhotos = photos.filter(p => p.habitId === h.id && p.date === dateStr);
               return (
@@ -491,7 +488,7 @@ export default function CalendarScreen({ myId, lang, tk, habits, members, logs, 
                 </View>
               );
             })}
-            {!isEditable(selDay) && isPast(selDay) && (
+            {habitsOpen && !isEditable(selDay) && isPast(selDay) && (
               <Text style={{ fontSize: 11, color: tk.text3, textAlign: 'center', marginTop: 4 }}>
                 {(lang === 'en' ? 'Cannot edit days older than 7 days' : 'Нельзя редактировать дни старше 7 дней')}
               </Text>

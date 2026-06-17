@@ -235,6 +235,12 @@ function SideNav({screen,onPress,tk,lang,theme,guest,onAuth,friendsBadge}:{scree
           <Text style={{fontSize:13.5,fontWeight:'700',color:tk.text}}>{en?'Sign in / Sign up':'Войти / Регистрация'}</Text>
         </TouchableOpacity>
       )}
+      {Platform.OS === 'web' && (
+        <TouchableOpacity onPress={()=>{ try { (window as any).location.assign('../'); } catch(e) {} }} activeOpacity={0.7}
+          style={{marginTop:10,paddingVertical:8,alignItems:'center'}}>
+          <Text style={{fontSize:12.5,color:tk.text3}}>← {en?'Back to site':'На сайт'}</Text>
+        </TouchableOpacity>
+      )}
     </View>
   );
 }
@@ -438,6 +444,11 @@ export default function App() {
   // Десктоп-раскладка: web + широкий экран → боковое меню вместо нижнего бара
   const winW = useWindowDimensions().width;
   const isDesktop = Platform.OS === 'web' && winW >= 900;
+  const [guestBannerHidden, setGuestBannerHidden] = useState(false);
+  // Дата, на которой открыть календарь (при тапе по дню на «Сегодня»)
+  const [calTarget, setCalTarget] = useState<Date | null>(null);
+  // Куда вернуться из под-экрана (запоминаем откуда зашли)
+  const navOrigin = useRef<Partial<Record<Screen, Screen>>>({});
   const [loading,     setLoading]     = useState(false);
   const [toast,       setToast]       = useState<{msg:string;ok:boolean}|null>(null);
   const [isOnline,    setIsOnline]    = useState(true);
@@ -741,6 +752,8 @@ export default function App() {
 
   const animateScreenChange = (newScreen: Screen, direction: 'forward' | 'back' = 'forward') => {
     if (newScreen === screen) return;
+    // Запоминаем, откуда зашли на под-экран, чтобы кнопка «назад» вернула туда же
+    if (direction === 'forward') navOrigin.current[newScreen] = screen;
     const inX = direction === 'forward' ? 40 : -40;
     // 1. Показываем cover поверх старого экрана
     setCoverVisible(true);
@@ -1959,7 +1972,7 @@ export default function App() {
         scheduleMorningMotivation(hasP, v, notifTimeMorning).catch(()=>{});
       }}
       onPartnerNotifToggle={async(v)=>{setPartnerNotif(v);await Storage.set('partner_notif',v);}}
-      onBack={()=>setScreen('profile')}
+      onBack={()=>animateScreenChange(navOrigin.current.settings||'profile','back')}
       onAddWidget={async()=>{
         const { pinHabitsWidget } = require('./src/widget/pinWidget');
         const ok = await pinHabitsWidget();
@@ -1982,7 +1995,7 @@ export default function App() {
         partnerId={moodPartner?.id}
         partnerName={moodPartner?.name}
         spaceId={space?.id}
-        onBack={() => animateScreenChange('profile', 'back')} />
+        onBack={() => animateScreenChange(navOrigin.current.mood||'profile', 'back')} />
     );
   }
 
@@ -1998,7 +2011,7 @@ export default function App() {
         plan={subscription.plan}
         statsTab={statsTab}
         onStatsTabChange={setStatsTab}
-        onBack={()=>setScreen('profile')}/>
+        onBack={()=>animateScreenChange(navOrigin.current.stats||'profile','back')}/>
     </View>
   );
 
@@ -2008,7 +2021,7 @@ export default function App() {
         totalDone={Object.keys(logs).filter(k=>k.includes(`_${myId}`)).length}
         maxStreak={maxStreak}
         partnerTotalDone={members.length>1?Object.keys(logs).filter(k=>k.includes(`_${members.find(m=>m&&m.id!==myId)?.id||''}`)).length:undefined}
-        friendCount={members.length>1?1:0} onBack={()=>setScreen('profile')}/>
+        friendCount={members.length>1?1:0} onBack={()=>animateScreenChange(navOrigin.current.achievements||'profile','back')}/>
     </View>
   );
 
@@ -3064,7 +3077,7 @@ export default function App() {
     );
     if (screen==='calendar') return (
       <CalendarScreen myId={myId} lang={lang} tk={tk} habits={habits} members={members} logs={logs}
-        spaceId={space?.id}
+        spaceId={space?.id} initialDate={calTarget}
         onToggleLog={async(hid,dateStr)=>{
           const key=`${hid}_${dateStr}_${myId}`;
           const l={...(space?.logs||{})};
@@ -3074,7 +3087,7 @@ export default function App() {
     );
     return (
       <TodayScreen myId={myId} myName={myName} lang={lang} tk={tk} theme={theme} selectedAvatar={selectedAvatar}
-        spaceId={space?.id} onOpenCalendar={()=>animateScreenChange('calendar')}
+        spaceId={space?.id} onOpenCalendar={(date?:Date)=>{ setCalTarget(date||null); animateScreenChange('calendar'); }}
         habits={habits} members={members} logs={logs} onToggle={toggle}
         onDelete={async(id)=>{
           const h=(space?.habits||[]).filter(x=>x.id!==id);
@@ -3186,7 +3199,7 @@ export default function App() {
       {...((!isDesktop && TAB_SCREENS.includes(screen)) ? tabSwipePan.panHandlers : {})}>
       {isDesktop && <SideNav screen={screen} onPress={s=>s==='add'?setScreen('addHabit'):animateScreenChange(s as Screen)} tk={tk} lang={lang} theme={theme} guest={isGuest()} onAuth={()=>setScreen('auth')}
         friendsBadge={members.length>1 ? members.filter(m=>m&&m.id!==myId).filter(m=>{const dow=todayDow();const todayH=(space?.habits||[]).filter(h=>h.days?.includes(dow));return todayH.some(h=>isLogged(h.id,m.id,logs));}).length : 0}/>}
-      {isGuest() && (
+      {isGuest() && !guestBannerHidden && (
         <View style={{ backgroundColor: tk.accent + '22', borderBottomWidth: 1, borderColor: tk.accent + '44',
           paddingVertical: 10, paddingHorizontal: 16, flexDirection: 'row',
           alignItems: 'center', gap: 10 }}>
@@ -3195,7 +3208,9 @@ export default function App() {
               {lang === 'en' ? 'Guest mode' : 'Гостевой режим'}
             </Text>
             <Text style={{ fontSize: 11, color: tk.text3, marginTop: 1 }}>
-              {lang === 'en' ? 'Register to sync data and invite partners' : 'Зарегистрируйтесь чтобы сохранить данные и пригласить партнёра'}
+              {lang === 'en'
+                ? 'Without an account your progress is NOT saved. Sign up to keep your data and invite partners.'
+                : 'Без аккаунта прогресс НЕ сохраняется. Зарегистрируйтесь, чтобы сохранять данные и пригласить партнёра.'}
             </Text>
           </View>
           <TouchableOpacity onPress={() => setScreen('auth')}
@@ -3203,6 +3218,10 @@ export default function App() {
             <Text style={{ fontSize: 12, fontWeight: '700', color: tk.bg }}>
               {lang === 'en' ? 'Sign up' : 'Войти'}
             </Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => setGuestBannerHidden(true)} hitSlop={{ top: 10, bottom: 10, left: 8, right: 8 }}
+            style={{ width: 24, height: 24, alignItems: 'center', justifyContent: 'center' }}>
+            <Text style={{ fontSize: 18, color: tk.text3, lineHeight: 18 }}>×</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -3296,14 +3315,14 @@ export default function App() {
         return todayH.some(h=>isLogged(h.id,m.id,logs));
       }).length : 0}/>}
       {/* Android-style bottom cross bar для под-экранов */}
-      {Platform.OS==='android' && backDestination[screen] && (
+      {Platform.OS==='android' && (navOrigin.current[screen]||backDestination[screen]) && (
         <View style={{position:'absolute',bottom:0,left:0,right:0,
           backgroundColor:tk.bg+'f2',
           borderTopWidth:0.5,borderTopColor:tk.border,
           paddingBottom:8,paddingTop:4,
           flexDirection:'row',justifyContent:'center'}}>
           <TouchableOpacity
-            onPress={()=>animateScreenChange(backDestination[screen]!)}
+            onPress={()=>animateScreenChange((navOrigin.current[screen]||backDestination[screen])!,'back')}
             hitSlop={{top:12,bottom:12,left:60,right:60}}
             style={{paddingVertical:8,paddingHorizontal:32}}>
             <View style={{width:48,height:4,borderRadius:2,backgroundColor:tk.text3,opacity:0.5}}/>

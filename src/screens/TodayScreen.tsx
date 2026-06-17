@@ -891,7 +891,7 @@ interface Props {
   theme?: 'dark' | 'light';
   selectedAvatar?: string;
   spaceId?: string;
-  onOpenCalendar?: () => void;
+  onOpenCalendar?: (date?: Date) => void;
   habits: Habit[]; members: Member[]; logs: Record<string,boolean>;
   reactions?: import('../store').HabitReaction[];
   spaceNotes?: {habitId:string;date:string;uid:string;note:string}[];
@@ -1279,7 +1279,9 @@ export default function TodayScreen({
             const dot = getDot(d);
             const WD = isEn ? WD_EN : WD_RU;
             return (
-              <View key={i} style={{ flex: 1, alignItems: 'center', gap: 4 }}>
+              <TouchableOpacity key={i} activeOpacity={0.7}
+                onPress={() => onOpenCalendar?.(new Date(d))}
+                style={{ flex: 1, alignItems: 'center', gap: 4, paddingVertical: 2 }}>
                 <Text style={{ fontSize: 10, color: tk.text3 }}>{WD[dw]}</Text>
                 <View style={{ width: 32, height: 32, borderRadius: 10,
                   backgroundColor: isToday ? tk.text : 'transparent',
@@ -1293,7 +1295,7 @@ export default function TodayScreen({
                     dot === 'full' ? tk.text :
                     dot === 'part' ? tk.text2 :
                     'transparent' }} />
-              </View>
+              </TouchableOpacity>
             );
           })}
         </View>
@@ -1497,13 +1499,13 @@ export default function TodayScreen({
                 {isEn ? 'Upcoming events' : 'Ближайшие события'}
               </Text>
               {onOpenCalendar && (
-                <TouchableOpacity onPress={onOpenCalendar} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <TouchableOpacity onPress={() => onOpenCalendar?.()} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                   <Text style={{ fontSize: 12, color: tk.accent, fontWeight: '600' }}>{isEn ? 'Calendar' : 'Календарь'}</Text>
                 </TouchableOpacity>
               )}
             </View>
             {upcomingEvents.map((ev: any) => (
-              <TouchableOpacity key={ev.id} onPress={onOpenCalendar} activeOpacity={0.7}
+              <TouchableOpacity key={ev.id} onPress={() => onOpenCalendar?.(new Date(ev.date + 'T00:00:00'))} activeOpacity={0.7}
                 style={{ flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12,
                   backgroundColor: tk.bg2, borderWidth: 1, borderColor: tk.border, borderRadius: 12, marginBottom: 8 }}>
                 <View style={{ alignItems: 'center', width: 40 }}>
