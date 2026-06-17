@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
 import * as Haptics from 'expo-haptics';
-import { View, Platform, StatusBar, Text, ScrollView, TouchableOpacity, Modal, Image } from 'react-native';
+import { View, Platform, StatusBar, Text, ScrollView, TouchableOpacity, Modal, Image, TextInput } from 'react-native';
 import { Theme, MONTHS_RU, MONTHS_EN, WD_RU, WD_EN } from '../theme';
 import { tr } from '../i18n';
 import Svg, { Path, Circle, Rect, Line } from 'react-native-svg';
-import { Habit, Member, Storage } from '../store';
+import { Habit, Member, Storage, CalEvent } from '../store';
+import { scheduleEventReminder, cancelEventReminder } from '../notifications';
 import { isLogged, dateToS } from '../utils';
 
 // Локализация
@@ -78,6 +79,42 @@ export default function CalendarScreen({ myId, lang, tk, habits, members, logs, 
 
   // Синхронизируем localLogs когда приходят новые данные из Firestore
   React.useEffect(() => { setLocalLogs(logs); }, [logs]);
+
+  // ── События календаря ───────────────────────────────────────────────────
+  const [events, setEvents] = useState<CalEvent[]>([]);
+  const [showAddEvent, setShowAddEvent] = useState(false);
+  const [evTitle, setEvTitle] = useState('');
+  const [evTime, setEvTime] = useState('');
+  const [evRemind, setEvRemind] = useState(true);
+  React.useEffect(() => { Storage.getEvents(myId).then(setEvents).catch(() => {}); }, [myId]);
+
+  const formatTimeInput = (t: string) => {
+    const d = t.replace(/\D/g, '').slice(0, 4);
+    return d.length <= 2 ? d : d.slice(0, 2) + ':' + d.slice(2);
+  };
+  const eventsForDay = (dateStr: string) =>
+    events.filter(e => e.date === dateStr).sort((a, b) => (a.time || '99').localeCompare(b.time || '99'));
+  const saveEvents = async (list: CalEvent[]) => { setEvents(list); await Storage.setEvents(myId, list); };
+
+  const addEvent = async () => {
+    if (selDay == null || !evTitle.trim()) return;
+    const dateStr = ds(selDay);
+    const id = `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    const time = evTime.trim().length === 5 ? evTime.trim() : undefined;
+    const ev: CalEvent = { id, date: dateStr, title: evTitle.trim(), time, remind: evRemind, createdAt: Date.now() };
+    await saveEvents([...events, ev]);
+    if (evRemind && time) {
+      const [hh, mm] = time.split(':').map(Number);
+      const when = new Date(year, month, selDay, hh || 0, mm || 0, 0);
+      scheduleEventReminder(id, ev.title, when).catch(() => {});
+    }
+    setEvTitle(''); setEvTime(''); setEvRemind(true); setShowAddEvent(false);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+  };
+  const deleteEvent = async (id: string) => {
+    await saveEvents(events.filter(e => e.id !== id));
+    cancelEventReminder(id).catch(() => {});
+  };
 
   const handleToggleLog = async (hid: string, dateStr: string) => {
     if (!onToggleLog) return;
@@ -226,6 +263,7 @@ export default function CalendarScreen({ myId, lang, tk, habits, members, logs, 
                 const dotColors = dotInfo?.colors ?? [];
                 const editable = isEditable(d);
                 const dim = isPast(d) && !editable;
+                const hasEvents = events.some(e => e.date === ds(d));
                 return (
                   <TouchableOpacity key={d} onPress={() => setSelDay(d === selDay ? null : d)} activeOpacity={0.7}
                     style={{ width: '14.28%', height: 54, alignItems: 'center', justifyContent: 'flex-start', paddingTop: 2 }}>
@@ -242,7 +280,8 @@ export default function CalendarScreen({ myId, lang, tk, habits, members, logs, 
                       }}>{d}</Text>
                     </View>
                     <View style={{ flexDirection: 'row', gap: 3, marginTop: 4, height: 6, alignItems: 'center' }}>
-                      {dot === 'full' && <View style={{ width: 5, height: 5, borderRadius: 2.5, backgroundColor: tk.accent }} />}
+                      {hasEvents && <View style={{ width: 5, height: 5, borderRadius: 2.5, backgroundColor: tk.accent, borderWidth: isSel ? 0 : 0 }} />}
+                      {dot === 'full' && <View style={{ width: 5, height: 5, borderRadius: 2.5, backgroundColor: isSel ? '#fff' : tk.accent }} />}
                       {dot === 'part' && dotColors.slice(0, 3).map((c, i) => (
                         <View key={i} style={{ width: 5, height: 5, borderRadius: 2.5,
                           backgroundColor: c && c !== '#f5f5f5' ? c : tk.text3 }} />
@@ -436,6 +475,33 @@ export default function CalendarScreen({ myId, lang, tk, habits, members, logs, 
           </View>
         )}
 
+        {/* События выбранного дня */}
+        {selDay !== null && (
+          <View style={{ backgroundColor: tk.bg2, borderWidth: 1, borderColor: tk.border, borderRadius: 14, padding: 14, marginTop: 12 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+              <Text style={{ fontSize: 13, fontWeight: '700', color: tk.text }}>{L('События', 'Events')}</Text>
+              <TouchableOpacity onPress={() => setShowAddEvent(true)} activeOpacity={0.85}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 11, paddingVertical: 6, borderRadius: 9, backgroundColor: tk.accent }}>
+                <Text style={{ color: '#fff', fontSize: 16, lineHeight: 16, fontWeight: '500' }}>+</Text>
+                <Text style={{ color: '#fff', fontSize: 12, fontWeight: '700' }}>{L('Добавить', 'Add')}</Text>
+              </TouchableOpacity>
+            </View>
+            {eventsForDay(ds(selDay)).length === 0 ? (
+              <Text style={{ fontSize: 12.5, color: tk.text3, paddingVertical: 4 }}>{L('Событий нет — добавьте первое', 'No events — add one')}</Text>
+            ) : eventsForDay(ds(selDay)).map(ev => (
+              <View key={ev.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: 10, backgroundColor: tk.bg3, borderRadius: 10, marginBottom: 6 }}>
+                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: tk.accent }} />
+                {ev.time ? <Text style={{ fontSize: 12.5, fontWeight: '700', color: tk.text2, width: 44 }}>{ev.time}</Text> : null}
+                <Text style={{ fontSize: 13.5, color: tk.text, flex: 1 }}>{ev.title}</Text>
+                {ev.remind && ev.time ? <Text style={{ fontSize: 13 }}>🔔</Text> : null}
+                <TouchableOpacity onPress={() => deleteEvent(ev.id)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                  <Text style={{ fontSize: 18, color: tk.text3, lineHeight: 18 }}>×</Text>
+                </TouchableOpacity>
+              </View>
+            ))}
+          </View>
+        )}
+
       </ScrollView>
       {errorMsg && (
         <View style={{ position: 'absolute', bottom: 32, left: 20, right: 20,
@@ -444,6 +510,52 @@ export default function CalendarScreen({ myId, lang, tk, habits, members, logs, 
           <Text style={{ color: '#fff', fontSize: 13, fontWeight: '600' }}>{errorMsg}</Text>
         </View>
       )}
+
+      {/* Модалка: новое событие */}
+      <Modal visible={showAddEvent} transparent animationType="fade" onRequestClose={() => setShowAddEvent(false)}>
+        <TouchableOpacity activeOpacity={1} onPress={() => setShowAddEvent(false)}
+          style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+          <TouchableOpacity activeOpacity={1} onPress={() => {}}
+            style={{ width: '100%', maxWidth: 380, backgroundColor: tk.bg2, borderRadius: 18, borderWidth: 1, borderColor: tk.border, padding: 20 }}>
+            <Text style={{ fontSize: 17, fontWeight: '700', color: tk.text, marginBottom: 4 }}>{L('Новое событие', 'New event')}</Text>
+            <Text style={{ fontSize: 12, color: tk.text3, marginBottom: 16 }}>
+              {selDay} {(isEn ? MONTHS_EN : MONTHS_RU)[month]} {year}
+            </Text>
+            <Text style={{ fontSize: 11, color: tk.text3, marginBottom: 6, letterSpacing: 0.5 }}>{L('НАЗВАНИЕ', 'TITLE')}</Text>
+            <TextInput value={evTitle} onChangeText={setEvTitle} autoFocus
+              placeholder={L('Например: Созвон с командой', 'e.g. Team call')} placeholderTextColor={tk.text3}
+              style={{ backgroundColor: tk.bg3, borderWidth: 1, borderColor: tk.border, borderRadius: 12, padding: 12, fontSize: 14, color: tk.text, marginBottom: 14 }} />
+            <Text style={{ fontSize: 11, color: tk.text3, marginBottom: 6, letterSpacing: 0.5 }}>{L('ВРЕМЯ (необязательно)', 'TIME (optional)')}</Text>
+            <TextInput value={evTime} onChangeText={t => setEvTime(formatTimeInput(t))}
+              placeholder="18:30" placeholderTextColor={tk.text3} keyboardType="numbers-and-punctuation" maxLength={5}
+              style={{ backgroundColor: tk.bg3, borderWidth: 1, borderColor: tk.border, borderRadius: 12, padding: 12, fontSize: 14, color: tk.text, marginBottom: 14, width: 120 }} />
+            <TouchableOpacity onPress={() => setEvRemind(v => !v)} activeOpacity={0.8}
+              style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 20 }}>
+              <View style={{ width: 46, height: 28, borderRadius: 14, padding: 2,
+                backgroundColor: evRemind ? tk.accent : tk.bg3, borderWidth: 1, borderColor: evRemind ? tk.accent : tk.border,
+                justifyContent: 'center', alignItems: evRemind ? 'flex-end' : 'flex-start' }}>
+                <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: '#fff' }} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 14, color: tk.text, fontWeight: '600' }}>{L('Напоминание', 'Reminder')}</Text>
+                <Text style={{ fontSize: 11, color: tk.text3, marginTop: 1 }}>
+                  {evTime.length === 5 ? L('Уведомим в ' + evTime, 'Notify at ' + evTime) : L('Укажите время для напоминания', 'Set a time to be notified')}
+                </Text>
+              </View>
+            </TouchableOpacity>
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              <TouchableOpacity onPress={() => setShowAddEvent(false)}
+                style={{ flex: 1, padding: 13, borderRadius: 12, borderWidth: 1, borderColor: tk.border, alignItems: 'center' }}>
+                <Text style={{ color: tk.text2, fontSize: 14 }}>{L('Отмена', 'Cancel')}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={addEvent} disabled={!evTitle.trim()} activeOpacity={0.85}
+                style={{ flex: 2, padding: 13, borderRadius: 12, alignItems: 'center', backgroundColor: evTitle.trim() ? tk.accent : tk.bg3, opacity: evTitle.trim() ? 1 : 0.6 }}>
+                <Text style={{ color: '#fff', fontSize: 14, fontWeight: '700' }}>{L('Сохранить', 'Save')}</Text>
+              </TouchableOpacity>
+            </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
     </View>
   );
 }

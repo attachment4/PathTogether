@@ -196,6 +196,35 @@ export async function scheduleAppReminder(
   } catch (e) { console.warn('[notifications] scheduleAppReminder', e); }
 }
 
+// Разовое напоминание о событии календаря в конкретную дату/время.
+// Возвращает id уведомления (для отмены) или null. На web/без EAS — no-op.
+export async function scheduleEventReminder(id: string, title: string, when: Date): Promise<string | null> {
+  const N = getNotifications();
+  if (!isAvailable()) return null;
+  if (!(when instanceof Date) || isNaN(when.getTime()) || when.getTime() <= Date.now()) return null;
+  try {
+    const notifId = 'event_' + id;
+    await N.cancelScheduledNotificationAsync(notifId).catch(() => {});
+    await N.scheduleNotificationAsync({
+      identifier: notifId,
+      content: {
+        title: '📅 ' + title,
+        body: 'Напоминание о событии',
+        sound: 'default',
+        ...(require('react-native').Platform.OS === 'android' ? { channelId: 'reminders' } : {}),
+      },
+      trigger: { type: 'date', date: when },
+    });
+    return notifId;
+  } catch (e) { console.warn('[notifications] scheduleEventReminder', e); return null; }
+}
+
+export async function cancelEventReminder(id: string): Promise<void> {
+  const N = getNotifications();
+  if (!isAvailable()) return;
+  try { await N.cancelScheduledNotificationAsync('event_' + id).catch(() => {}); } catch {}
+}
+
 export async function scheduleStreakReminder(
   streak: number, hasPartner: boolean, enabled: boolean
 ): Promise<void> {

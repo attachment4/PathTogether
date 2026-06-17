@@ -17,6 +17,9 @@ export interface HabitReaction { emoji: string; fromId: string; fromName: string
 // emoji хранит ReactionKey ('heart' | 'fire' | ...) — не unicode эмодзи
 export interface MoodEntry { date: string; mood: 1|2|3|4|5; note?: string; uid: string; }
 
+/** Событие календаря (разовое, привязано к дате) */
+export interface CalEvent { id: string; date: string /* YYYY-MM-DD */; title: string; time?: string /* HH:MM */; remind?: boolean; createdAt: number; }
+
 export interface InviteData { spaceId:string; spaceName:string; creatorId:string; type?:'normal'|'love'; hostPlan?:string; hostMax?:number; }
 
 const TAG = '[Storage]';
@@ -133,6 +136,29 @@ export const Storage = {
     await AsyncStorage.setItem(`pt_mood_${entry.uid}_${entry.date}`, JSON.stringify(entry));
     // Сохраняем в Firestore — переживёт переустановку
     await setDoc(doc(db, 'users', entry.uid, 'mood', entry.date), entry).catch(() => {});
+  },
+  // ── События календаря ───────────────────────────────────────────────────
+  async getEvents(uid: string): Promise<CalEvent[]> {
+    try {
+      const local = await LS.get<CalEvent[]>(`events_${uid}`);
+      if (Array.isArray(local)) return local;
+    } catch {}
+    try {
+      if (uid && uid !== 'guest') {
+        const snap = await getDoc(doc(db, 'users', uid, 'meta', 'calEvents'));
+        const list = snap.exists() ? (snap.data() as any).list : null;
+        if (Array.isArray(list)) { await LS.set(`events_${uid}`, list); return list; }
+      }
+    } catch {}
+    return [];
+  },
+  async setEvents(uid: string, events: CalEvent[]): Promise<void> {
+    await LS.set(`events_${uid}`, events);
+    try {
+      if (uid && uid !== 'guest' && auth.currentUser?.uid === uid) {
+        await setDoc(doc(db, 'users', uid, 'meta', 'calEvents'), { list: events });
+      }
+    } catch (e) { console.warn(TAG, 'setEvents', e); }
   },
   async getMoodRange(uid: string, dates: string[]): Promise<MoodEntry[]> {
     try {
