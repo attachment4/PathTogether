@@ -8,7 +8,7 @@ import {
 const { width: SCREEN_W } = Dimensions.get('window');
 import { Theme, WD_RU, WD_EN, MON_GENITIVE_RU, MONTHS_EN } from '../theme';
 import { tr } from '../i18n';
-import { Habit, Member } from '../store';
+import { Habit, Member, Storage, CalEvent } from '../store';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { todayS, todayDow, isLogged, dateToS, calcStreak, calcJointStreak } from '../utils';
 import { GlassCard } from '../components/GlassCard';
@@ -890,6 +890,8 @@ interface Props {
   myId: string; myName: string; lang: string; tk: Theme;
   theme?: 'dark' | 'light';
   selectedAvatar?: string;
+  spaceId?: string;
+  onOpenCalendar?: () => void;
   habits: Habit[]; members: Member[]; logs: Record<string,boolean>;
   reactions?: import('../store').HabitReaction[];
   spaceNotes?: {habitId:string;date:string;uid:string;note:string}[];
@@ -914,6 +916,7 @@ interface Props {
 //  Главный экран 
 export default function TodayScreen({
   myId, myName, lang, tk, theme = 'dark', habits, members, logs,
+  spaceId, onOpenCalendar,
   reactions = [], spaceNotes = [],
   onToggle, onDelete, onOpenDetail, onAddHabit, onOpenProfile, onReorder, onRefresh,
   onWeekPlan, onReact, onOpenAchievements, onOpenMood, todayMood, onOpenStats,
@@ -923,6 +926,38 @@ export default function TodayScreen({
   const L = (ru: string, en: string, uk?: string, be?: string, kk?: string) =>
     lang==='en' ? en : lang==='uk' ? (uk||ru) : lang==='be' ? (be||ru) : lang==='kk' ? (kk||ru) : ru;
   const [searchQ, setSearchQ] = useState('');
+  // Ближайшие события календаря (личные + общие)
+  const [calEvents, setCalEvents] = useState<CalEvent[]>([]);
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const personal = await Storage.getEvents(myId).catch(() => [] as CalEvent[]);
+      let shared: CalEvent[] = [];
+      if (spaceId) shared = await Storage.getSpaceEvents(spaceId).catch(() => [] as CalEvent[]);
+      if (alive) setCalEvents([
+        ...personal.map(e => ({ ...e, shared: false })),
+        ...shared.map(e => ({ ...e, shared: true })),
+      ]);
+    })();
+    return () => { alive = false; };
+  }, [myId, spaceId]);
+  const upcomingEvents = (() => {
+    const now = new Date();
+    const todayMid = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+    const monNames = isEn ? ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+                          : ['янв','фев','мар','апр','май','июн','июл','авг','сен','окт','ноя','дек'];
+    return calEvents
+      .filter(e => e.date >= todayStr)
+      .sort((a, b) => (a.date + (a.time || '99')).localeCompare(b.date + (b.time || '99')))
+      .slice(0, 4)
+      .map(e => {
+        const [y, m, d] = e.date.split('-').map(Number);
+        const diff = Math.round((new Date(y, m-1, d).getTime() - todayMid.getTime()) / 86400000);
+        const when = diff === 0 ? L('Сегодня','Today') : diff === 1 ? L('Завтра','Tomorrow') : `${d} ${monNames[m-1]}`;
+        return { ...e, _day: String(d), _mon: monNames[m-1], _when: when };
+      });
+  })();
   const [sortDone,   setSortDone]   = useState(false);
   const [habitTab,   setHabitTab]   = useState<'my'|'shared'>('my');
   const [refreshing, setRefreshing] = useState(false);
@@ -1453,6 +1488,40 @@ export default function TodayScreen({
             </View>
           );
         })()}
+
+        {/* Ближайшие события */}
+        {upcomingEvents.length > 0 && (
+          <View style={{ marginBottom: 18 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+              <Text style={{ fontSize: 10, color: tk.text3, letterSpacing: 1.5, textTransform: 'uppercase' }}>
+                {isEn ? 'Upcoming events' : 'Ближайшие события'}
+              </Text>
+              {onOpenCalendar && (
+                <TouchableOpacity onPress={onOpenCalendar} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                  <Text style={{ fontSize: 12, color: tk.accent, fontWeight: '600' }}>{isEn ? 'Calendar' : 'Календарь'}</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+            {upcomingEvents.map((ev: any) => (
+              <TouchableOpacity key={ev.id} onPress={onOpenCalendar} activeOpacity={0.7}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12,
+                  backgroundColor: tk.bg2, borderWidth: 1, borderColor: tk.border, borderRadius: 12, marginBottom: 8 }}>
+                <View style={{ alignItems: 'center', width: 40 }}>
+                  <Text style={{ fontSize: 17, fontWeight: '800', color: tk.text }}>{ev._day}</Text>
+                  <Text style={{ fontSize: 9.5, color: tk.text3, textTransform: 'uppercase' }}>{ev._mon}</Text>
+                </View>
+                <View style={{ width: 1, height: 30, backgroundColor: tk.border }} />
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 14, color: tk.text, fontWeight: '600' }} numberOfLines={1}>{ev.title}</Text>
+                  <Text style={{ fontSize: 11, color: tk.text3, marginTop: 1 }}>
+                    {ev._when}{ev.time ? ' · ' + ev.time : ''}{ev.shared ? ' · 👥' : ''}
+                  </Text>
+                </View>
+                {ev.remind && ev.time ? <Text style={{ fontSize: 13 }}>🔔</Text> : null}
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
 
         {/* Habits header */}
         <View style={{ flexDirection: 'row', alignItems: 'center',

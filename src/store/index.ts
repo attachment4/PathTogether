@@ -17,8 +17,8 @@ export interface HabitReaction { emoji: string; fromId: string; fromName: string
 // emoji хранит ReactionKey ('heart' | 'fire' | ...) — не unicode эмодзи
 export interface MoodEntry { date: string; mood: 1|2|3|4|5; note?: string; uid: string; }
 
-/** Событие календаря (разовое, привязано к дате) */
-export interface CalEvent { id: string; date: string /* YYYY-MM-DD */; title: string; time?: string /* HH:MM */; remind?: boolean; createdAt: number; }
+/** Событие календаря (разовое, привязано к дате). shared — общее с партнёром (хранится в пространстве) */
+export interface CalEvent { id: string; date: string /* YYYY-MM-DD */; title: string; time?: string /* HH:MM */; remind?: boolean; createdAt: number; shared?: boolean; ownerId?: string; ownerName?: string; }
 
 export interface InviteData { spaceId:string; spaceName:string; creatorId:string; type?:'normal'|'love'; hostPlan?:string; hostMax?:number; }
 
@@ -159,6 +159,32 @@ export const Storage = {
         await setDoc(doc(db, 'users', uid, 'meta', 'calEvents'), { list: events });
       }
     } catch (e) { console.warn(TAG, 'setEvents', e); }
+  },
+  // Общие с партнёром события — в пространстве (читают/пишут все участники)
+  async getSpaceEvents(spaceId: string): Promise<CalEvent[]> {
+    if (!spaceId) return [];
+    try {
+      const snap = await getDoc(doc(db, 'spaces', spaceId, 'data', 'calEvents'));
+      const list = snap.exists() ? (snap.data() as any).list : null;
+      if (Array.isArray(list)) { await LS.set(`spevents_${spaceId}`, list); return list; }
+    } catch {}
+    try { const local = await LS.get<CalEvent[]>(`spevents_${spaceId}`); if (Array.isArray(local)) return local; } catch {}
+    return [];
+  },
+  async setSpaceEvents(spaceId: string, events: CalEvent[]): Promise<void> {
+    if (!spaceId) return;
+    await LS.set(`spevents_${spaceId}`, events);
+    try { await setDoc(doc(db, 'spaces', spaceId, 'data', 'calEvents'), { list: events }); }
+    catch (e) { console.warn(TAG, 'setSpaceEvents', e); }
+  },
+  subscribeSpaceEvents(spaceId: string, cb: (events: CalEvent[]) => void): Unsubscribe | null {
+    if (!spaceId) return null;
+    try {
+      return onSnapshot(doc(db, 'spaces', spaceId, 'data', 'calEvents'), snap => {
+        const list = snap.exists() ? (snap.data() as any).list : [];
+        cb(Array.isArray(list) ? list : []);
+      }, () => {});
+    } catch { return null; }
   },
   async getMoodRange(uid: string, dates: string[]): Promise<MoodEntry[]> {
     try {

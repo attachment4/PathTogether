@@ -3074,6 +3074,7 @@ export default function App() {
     );
     return (
       <TodayScreen myId={myId} myName={myName} lang={lang} tk={tk} theme={theme} selectedAvatar={selectedAvatar}
+        spaceId={space?.id} onOpenCalendar={()=>animateScreenChange('calendar')}
         habits={habits} members={members} logs={logs} onToggle={toggle}
         onDelete={async(id)=>{
           const h=(space?.habits||[]).filter(x=>x.id!==id);

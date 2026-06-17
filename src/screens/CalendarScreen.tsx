@@ -6,6 +6,7 @@ import { tr } from '../i18n';
 import Svg, { Path, Circle, Rect, Line } from 'react-native-svg';
 import { Habit, Member, Storage, CalEvent } from '../store';
 import { scheduleEventReminder, cancelEventReminder } from '../notifications';
+import { TimePicker } from '../components/TimePicker';
 import { isLogged, dateToS } from '../utils';
 
 // Локализация
@@ -80,40 +81,63 @@ export default function CalendarScreen({ myId, lang, tk, habits, members, logs, 
   // Синхронизируем localLogs когда приходят новые данные из Firestore
   React.useEffect(() => { setLocalLogs(logs); }, [logs]);
 
-  // ── События календаря ───────────────────────────────────────────────────
-  const [events, setEvents] = useState<CalEvent[]>([]);
+  // ── События календаря (личные + общие с партнёром) ────────────────────────
+  const [myEvents, setMyEvents] = useState<CalEvent[]>([]);
+  const [spEvents, setSpEvents] = useState<CalEvent[]>([]);
   const [showAddEvent, setShowAddEvent] = useState(false);
+  const [showEvTimePicker, setShowEvTimePicker] = useState(false);
   const [evTitle, setEvTitle] = useState('');
   const [evTime, setEvTime] = useState('');
   const [evRemind, setEvRemind] = useState(true);
-  React.useEffect(() => { Storage.getEvents(myId).then(setEvents).catch(() => {}); }, [myId]);
+  const [evShared, setEvShared] = useState(false);
+  const hasPartner = members.filter(m => m && m.id !== myId).length > 0;
 
-  const formatTimeInput = (t: string) => {
-    const d = t.replace(/\D/g, '').slice(0, 4);
-    return d.length <= 2 ? d : d.slice(0, 2) + ':' + d.slice(2);
-  };
+  React.useEffect(() => { Storage.getEvents(myId).then(setMyEvents).catch(() => {}); }, [myId]);
+  React.useEffect(() => {
+    if (!spaceId) { setSpEvents([]); return; }
+    Storage.getSpaceEvents(spaceId).then(setSpEvents).catch(() => {});
+    const unsub = Storage.subscribeSpaceEvents(spaceId, setSpEvents);
+    return () => { if (unsub) unsub(); };
+  }, [spaceId]);
+
+  const events: CalEvent[] = [
+    ...myEvents.map(e => ({ ...e, shared: false })),
+    ...spEvents.map(e => ({ ...e, shared: true })),
+  ];
   const eventsForDay = (dateStr: string) =>
     events.filter(e => e.date === dateStr).sort((a, b) => (a.time || '99').localeCompare(b.time || '99'));
-  const saveEvents = async (list: CalEvent[]) => { setEvents(list); await Storage.setEvents(myId, list); };
 
   const addEvent = async () => {
     if (selDay == null || !evTitle.trim()) return;
     const dateStr = ds(selDay);
     const id = `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-    const time = evTime.trim().length === 5 ? evTime.trim() : undefined;
+    const time = /^\d{2}:\d{2}$/.test(evTime.trim()) ? evTime.trim() : undefined;
     const ev: CalEvent = { id, date: dateStr, title: evTitle.trim(), time, remind: evRemind, createdAt: Date.now() };
-    await saveEvents([...events, ev]);
+    if (evShared && spaceId && hasPartner) {
+      ev.ownerId = myId;
+      ev.ownerName = members.find(m => m && m.id === myId)?.name || '';
+      const list = [...spEvents, ev];
+      setSpEvents(list); await Storage.setSpaceEvents(spaceId, list);
+    } else {
+      const list = [...myEvents, ev];
+      setMyEvents(list); await Storage.setEvents(myId, list);
+    }
     if (evRemind && time) {
       const [hh, mm] = time.split(':').map(Number);
-      const when = new Date(year, month, selDay, hh || 0, mm || 0, 0);
-      scheduleEventReminder(id, ev.title, when).catch(() => {});
+      scheduleEventReminder(id, ev.title, new Date(year, month, selDay, hh || 0, mm || 0, 0)).catch(() => {});
     }
-    setEvTitle(''); setEvTime(''); setEvRemind(true); setShowAddEvent(false);
+    setEvTitle(''); setEvTime(''); setEvRemind(true); setEvShared(false); setShowAddEvent(false);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
   };
-  const deleteEvent = async (id: string) => {
-    await saveEvents(events.filter(e => e.id !== id));
-    cancelEventReminder(id).catch(() => {});
+  const deleteEvent = async (ev: CalEvent) => {
+    if (ev.shared && spaceId) {
+      const list = spEvents.filter(e => e.id !== ev.id);
+      setSpEvents(list); await Storage.setSpaceEvents(spaceId, list);
+    } else {
+      const list = myEvents.filter(e => e.id !== ev.id);
+      setMyEvents(list); await Storage.setEvents(myId, list);
+    }
+    cancelEventReminder(ev.id).catch(() => {});
   };
 
   const handleToggleLog = async (hid: string, dateStr: string) => {
@@ -492,9 +516,16 @@ export default function CalendarScreen({ myId, lang, tk, habits, members, logs, 
               <View key={ev.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: 10, backgroundColor: tk.bg3, borderRadius: 10, marginBottom: 6 }}>
                 <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: tk.accent }} />
                 {ev.time ? <Text style={{ fontSize: 12.5, fontWeight: '700', color: tk.text2, width: 44 }}>{ev.time}</Text> : null}
-                <Text style={{ fontSize: 13.5, color: tk.text, flex: 1 }}>{ev.title}</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 13.5, color: tk.text }}>{ev.title}</Text>
+                  {ev.shared ? (
+                    <Text style={{ fontSize: 10.5, color: tk.text3, marginTop: 1 }}>
+                      👥 {ev.ownerName ? L('общее · ', 'shared · ') + ev.ownerName : L('общее', 'shared')}
+                    </Text>
+                  ) : null}
+                </View>
                 {ev.remind && ev.time ? <Text style={{ fontSize: 13 }}>🔔</Text> : null}
-                <TouchableOpacity onPress={() => deleteEvent(ev.id)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <TouchableOpacity onPress={() => deleteEvent(ev)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                   <Text style={{ fontSize: 18, color: tk.text3, lineHeight: 18 }}>×</Text>
                 </TouchableOpacity>
               </View>
@@ -526,9 +557,31 @@ export default function CalendarScreen({ myId, lang, tk, habits, members, logs, 
               placeholder={L('Например: Созвон с командой', 'e.g. Team call')} placeholderTextColor={tk.text3}
               style={{ backgroundColor: tk.bg3, borderWidth: 1, borderColor: tk.border, borderRadius: 12, padding: 12, fontSize: 14, color: tk.text, marginBottom: 14 }} />
             <Text style={{ fontSize: 11, color: tk.text3, marginBottom: 6, letterSpacing: 0.5 }}>{L('ВРЕМЯ (необязательно)', 'TIME (optional)')}</Text>
-            <TextInput value={evTime} onChangeText={t => setEvTime(formatTimeInput(t))}
-              placeholder="18:30" placeholderTextColor={tk.text3} keyboardType="numbers-and-punctuation" maxLength={5}
-              style={{ backgroundColor: tk.bg3, borderWidth: 1, borderColor: tk.border, borderRadius: 12, padding: 12, fontSize: 14, color: tk.text, marginBottom: 14, width: 120 }} />
+            <TouchableOpacity onPress={() => setShowEvTimePicker(true)} activeOpacity={0.8}
+              style={{ backgroundColor: tk.bg3, borderWidth: 1, borderColor: tk.border, borderRadius: 12, paddingVertical: 12, paddingHorizontal: 14, marginBottom: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', width: 150 }}>
+              <Text style={{ fontSize: 15, fontWeight: '600', color: evTime ? tk.text : tk.text3 }}>{evTime || '— : —'}</Text>
+              <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
+                <Circle cx="12" cy="12" r="9" stroke={tk.text3} strokeWidth="1.6"/>
+                <Path d="M12 7v5l3 2" stroke={tk.text3} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+              </Svg>
+            </TouchableOpacity>
+
+            {hasPartner && (
+              <TouchableOpacity onPress={() => setEvShared(v => !v)} activeOpacity={0.8}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+                <View style={{ width: 46, height: 28, borderRadius: 14, padding: 2,
+                  backgroundColor: evShared ? tk.accent : tk.bg3, borderWidth: 1, borderColor: evShared ? tk.accent : tk.border,
+                  justifyContent: 'center', alignItems: evShared ? 'flex-end' : 'flex-start' }}>
+                  <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: '#fff' }} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 14, color: tk.text, fontWeight: '600' }}>{L('Общее с партнёром', 'Shared with partner')}</Text>
+                  <Text style={{ fontSize: 11, color: tk.text3, marginTop: 1 }}>
+                    {evShared ? L('Партнёр увидит это событие', 'Your partner will see it') : L('Личное — видите только вы', 'Private — only you')}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            )}
             <TouchableOpacity onPress={() => setEvRemind(v => !v)} activeOpacity={0.8}
               style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 20 }}>
               <View style={{ width: 46, height: 28, borderRadius: 14, padding: 2,
@@ -556,6 +609,10 @@ export default function CalendarScreen({ myId, lang, tk, habits, members, logs, 
           </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
+
+      {showEvTimePicker && (
+        <TimePicker value={evTime} onChange={setEvTime} onClose={() => setShowEvTimePicker(false)} tk={tk} />
+      )}
     </View>
   );
 }
