@@ -1718,7 +1718,23 @@ export default function App() {
     </View>
   );
 
-  if (screen==='onboarding') return (
+  // Десктоп-обёртка: сайдбар + центрированная колонка с max-width (как в Notion).
+  // На мобиле/нативе возвращает контент как есть.
+  const wrapDesk = (node: React.ReactNode, opts?: { sidebar?: boolean; maxW?: number }) => {
+    if (!isDesktop) return node;
+    const noSidebar = screen === 'onboarding' || screen === 'auth';
+    const { sidebar = !noSidebar, maxW = 760 } = opts || {};
+    return (
+      <View style={{ flex: 1, paddingLeft: sidebar ? SIDEBAR_W : 0, backgroundColor: tk.bg }}>
+        {sidebar && <SideNav screen={screen} onPress={s=>s==='add'?setScreen('addHabit'):animateScreenChange(s as Screen)} tk={tk} lang={lang} theme={theme} guest={isGuest()} onAuth={()=>setScreen('auth')}/>}
+        <View style={{ flex: 1, alignItems: 'center' }}>
+          <View style={{ flex: 1, width: '100%', maxWidth: maxW }}>{node}</View>
+        </View>
+      </View>
+    );
+  };
+
+  if (screen==='onboarding') return wrapDesk(
     <OnboardingScreen tk={tk} lang={lang} onDone={async(starterHabits)=>{
       await Storage.saveOnboarding();
       const {currentUser}=auth;
@@ -1837,7 +1853,7 @@ export default function App() {
     return null;
   };
 
-  if (screen==='pro') return (
+  if (screen==='pro') return wrapDesk(
     <View style={{flex:1,backgroundColor:tk.bg}}>
       {/* Назад — стрелка как на других экранах */}
       <View style={{flexDirection:'row',alignItems:'center',paddingHorizontal:20,paddingTop:TOP,paddingBottom:4}}>
@@ -1914,14 +1930,14 @@ export default function App() {
     </View>
   );
 
-  if (screen==='paywall') return (
+  if (screen==='paywall') return wrapDesk(
     <PaywallScreen lang={lang} tk={tk} myId={myId}
       subscription={subscription}
       onPlanChange={sub => setSubscription(sub)}
       onBack={()=>setScreen('pro')}/>
   );
 
-  if (screen==='settings') return (
+  if (screen==='settings') return wrapDesk(
     <SettingsScreen lang={lang} tk={tk} myId={myId}
       notifEnabled={notifEnabled} partnerNotifEnabled={partnerNotif}
       hasPartner={(space?.members?.length ?? 0) > 1}
@@ -1961,7 +1977,7 @@ export default function App() {
 
   if (screen==='mood') {
     const moodPartner = members.find(m => m && m.id !== myId);
-    return (
+    return wrapDesk(
       <MoodScreen myId={myId} lang={lang} tk={tk}
         partnerId={moodPartner?.id}
         partnerName={moodPartner?.name}
@@ -1970,7 +1986,7 @@ export default function App() {
     );
   }
 
-  if (screen==='stats') return (
+  if (screen==='stats') return wrapDesk(
     <View style={{flex:1,paddingTop:TOP,backgroundColor:tk.bg}}>
       <StatisticsScreen
         myId={myId} myName={myName} lang={lang} tk={tk}
@@ -1986,7 +2002,7 @@ export default function App() {
     </View>
   );
 
-  if (screen==='achievements') return (
+  if (screen==='achievements') return wrapDesk(
     <View style={{flex:1,paddingTop:TOP,backgroundColor:tk.bg}}>
       <AchievementsScreen lang={lang} tk={tk} habitCount={habits.length}
         totalDone={Object.keys(logs).filter(k=>k.includes(`_${myId}`)).length}
@@ -1996,10 +2012,9 @@ export default function App() {
     </View>
   );
 
-  if (screen==='profile') return (
-    <View style={{flex:1,paddingTop:isDesktop?0:TOP,paddingLeft:isDesktop?SIDEBAR_W:0,backgroundColor:tk.bg}}
+  if (screen==='profile') return wrapDesk(
+    <View style={{flex:1,paddingTop:isDesktop?0:TOP,backgroundColor:tk.bg}}
       {...(isDesktop ? {} : tabSwipePan.panHandlers)}>
-      {isDesktop && <SideNav screen={screen} onPress={s=>s==='add'?setScreen('addHabit'):animateScreenChange(s as Screen)} tk={tk} lang={lang} theme={theme} guest={isGuest()} onAuth={()=>setScreen('auth')}/>}
       <ProfileScreen myId={myId} myName={myName} lang={lang} tk={tk} theme={theme}
         subscription={subscription}
         habitCount={habits.length} friendCount={members.length>1?1:0}
@@ -2058,7 +2073,7 @@ export default function App() {
     </View>
   );
 
-  if (screen==='addHabit') return (
+  if (screen==='addHabit') return wrapDesk(
     <View style={{flex:1,paddingTop:TOP,backgroundColor:tk.bg}}>
       <KeyboardAvoidingView behavior={Platform.OS==='ios'?'padding':'height'} style={{flex:1}}>
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{padding:20,paddingBottom:60}} keyboardShouldPersistTaps="handled">
@@ -2548,7 +2563,7 @@ export default function App() {
 
   //  INVITE 
   if (screen==='invite') {
-    return (
+    return wrapDesk(
     <View style={{flex:1,paddingTop:TOP,backgroundColor:tk.bg}}>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{padding:20,paddingBottom:60}}>
         <View style={{flexDirection:'row',alignItems:'center',gap:12,marginBottom:28}}>
@@ -3205,7 +3220,7 @@ export default function App() {
         </View>
       )}
       <Animated.View style={{ flex: 1, opacity: screenOpacity, transform: [{ translateX: screenTranslateX }], backgroundColor: tk.bg, alignItems: isDesktop?'center':'stretch' }}>
-        {isDesktop ? <View style={{flex:1,width:'100%',maxWidth:1100,paddingTop:24}}>{mainScreen}</View> : mainScreen}
+        {isDesktop ? <View style={{flex:1,width:'100%',maxWidth:760,paddingTop:24}}>{mainScreen}</View> : mainScreen}
       </Animated.View>
       {/* Note Modal */}
       <Modal
